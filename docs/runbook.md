@@ -65,3 +65,35 @@ python3 scripts/verify_jesse_imports.py
 
 - pytest 用例是 bridge 回归验收基线
 - smoke 脚本 `scripts/smoke_test_ott2butkama_bridge.py` 仅作为开发联调用辅助，不作为验收标准
+
+## Backtest Compare
+
+说明：
+
+- 以下 `baseline==candidate` 命令用于框架 smoke 验收（验证对照流程、日志与报告产物），不用于评估策略优劣。
+
+执行前检查：
+
+- `jesse` 二进制可用（例如在已激活环境中执行 `jesse --help` 可返回帮助信息）。
+- 已激活 runtime 虚拟环境：`source runtime/jesse_workspace/.venv/bin/activate`。
+
+```bash
+source runtime/jesse_workspace/.venv/bin/activate
+python3 scripts/run_backtest_compare.py \
+  --symbol ETHUSDT \
+  --timeframe 5m \
+  --start 2026-04-01 \
+  --end 2026-04-04 \
+  --baseline-strategy Ott2butKAMA \
+  --candidate-strategy Ott2butKAMA
+```
+
+输出：
+
+- 原始日志：`docs/backtests/raw/*.log`
+- 对照报告：`docs/backtests/*-compare.md`
+
+失败处理：
+
+- 若运行失败，优先查看失败摘要：`docs/backtests/*-compare-failed.md`。
+- 若存在原始日志，检查 `docs/backtests/raw/*.log`；若日志缺失，请直接查看命令终端输出定位失败原因。
