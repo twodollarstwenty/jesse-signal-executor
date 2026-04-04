@@ -1,6 +1,6 @@
 import json
 
-from apps.executor_service.rules import decide_action
+from apps.executor_service.state_machine import decide_transition, normalize_side
 from apps.shared.db import connect
 
 
@@ -30,6 +30,16 @@ def fetch_current_side(*, cur, symbol: str) -> str | None:
     return None if row is None else row[0]
 
 
+def upsert_position_side(*, cur, symbol: str, side: str) -> None:
+    cur.execute(
+        """
+        INSERT INTO position_state (symbol, side, qty, entry_price, state_json)
+        VALUES (%s, %s, %s, %s, %s::jsonb)
+        """,
+        (symbol, side, 0, 0, "{}"),
+    )
+
+
 def run_once() -> None:
     conn = connect()
     try:
@@ -50,8 +60,15 @@ def run_once() -> None:
                     return
 
                 signal_id, symbol, action = row
+
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (symbol,))
+
                 current_side = fetch_current_side(cur=cur, symbol=symbol)
-                decision = decide_action(action, current_side)
+                normalized_current_side = normalize_side(current_side)
+                decision, next_state = decide_transition(current_side=current_side, signal_action=action)
+
+                if decision == "execute" and next_state != normalized_current_side:
+                    upsert_position_side(cur=cur, symbol=symbol, side=next_state)
 
                 cur.execute(
                     "UPDATE signal_events SET status = %s, updated_at = NOW() WHERE id = %s AND status = 'new'",
