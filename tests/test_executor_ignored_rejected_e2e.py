@@ -150,3 +150,85 @@ def test_open_long_rejected_when_current_side_is_short(monkeypatch):
     assert execution["status"] == "rejected", execution
     assert execution["mode"] == "dry_run", execution
     assert execution["signal_id"] == signal["id"], {"signal": signal, "execution": execution}
+
+
+def test_open_short_ignored_when_current_side_is_short(monkeypatch):
+    if os.getenv("PYTEST_XDIST_WORKER"):
+        pytest.skip("uses clear_event_tables on shared tables; run without xdist workers")
+
+    apply_test_db_env(monkeypatch)
+    init_db_schema()
+    clear_event_tables()
+
+    strategy = "Ott2butKAMA"
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    signal_time = "2024-04-05T00:10:00Z"
+    action = "open_short"
+
+    _insert_position_side(symbol=symbol, side="short")
+
+    insert_signal(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        signal_time=signal_time,
+        action=action,
+        payload={"source": "ignored-open-short-e2e"},
+    )
+
+    run_once()
+
+    signal, execution = _fetch_signal_and_execution(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        signal_time=signal_time,
+        action=action,
+    )
+
+    assert signal["status"] == "ignored", signal
+    assert execution["status"] == "ignored", execution
+    assert execution["mode"] == "dry_run", execution
+    assert execution["signal_id"] == signal["id"], {"signal": signal, "execution": execution}
+
+
+def test_open_short_rejected_when_current_side_is_long(monkeypatch):
+    if os.getenv("PYTEST_XDIST_WORKER"):
+        pytest.skip("uses clear_event_tables on shared tables; run without xdist workers")
+
+    apply_test_db_env(monkeypatch)
+    init_db_schema()
+    clear_event_tables()
+
+    strategy = "Ott2butKAMA"
+    symbol = "ETHUSDT"
+    timeframe = "5m"
+    signal_time = "2024-04-05T00:15:00Z"
+    action = "open_short"
+
+    _insert_position_side(symbol=symbol, side="long")
+
+    insert_signal(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        signal_time=signal_time,
+        action=action,
+        payload={"source": "rejected-open-short-e2e"},
+    )
+
+    run_once()
+
+    signal, execution = _fetch_signal_and_execution(
+        strategy=strategy,
+        symbol=symbol,
+        timeframe=timeframe,
+        signal_time=signal_time,
+        action=action,
+    )
+
+    assert signal["status"] == "rejected", signal
+    assert execution["status"] == "rejected", execution
+    assert execution["mode"] == "dry_run", execution
+    assert execution["signal_id"] == signal["id"], {"signal": signal, "execution": execution}
