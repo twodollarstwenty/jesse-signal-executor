@@ -1,0 +1,17 @@
+[project]
+name = "jesse-signal-executor"
+version = "0.1.0"
+description = "Jesse signal plus executor dry-run project skeleton"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic==2.12.5",
+  "psycopg2-binary==2.9.11",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

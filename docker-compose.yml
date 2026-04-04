@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jesse_signal_executor}
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  signal-service:
+    build:
+      context: .
+      dockerfile: infra/docker/signal.Dockerfile
+    command: python apps/signal_service/main.py
+    depends_on:
+      - postgres
+
+  executor-service:
+    build:
+      context: .
+      dockerfile: infra/docker/executor.Dockerfile
+    command: python apps/executor_service/main.py
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
