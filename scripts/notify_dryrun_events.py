@@ -13,16 +13,16 @@ from apps.shared.db import connect
 def format_execution_event_message(row: dict) -> str:
     return "\n".join(
         [
-            "[DRY-RUN]",
-            f"strategy: {row['strategy']}",
-            f"symbol: {row['symbol']}",
-            f"action: {row['action']}",
-            f"decision: {row['decision']}",
-            f"signal_time: {row.get('signal_time', 'N/A')}",
-            f"execution_time: {row['created_at']}",
-            f"price: {row.get('price', 'N/A')}",
-            f"position_side: {row.get('position_side', 'N/A')}",
-            f"reason: {row['reason'] or 'N/A'}",
+            "[Dry-Run]",
+            f"策略: {row['strategy']}",
+            f"交易对: {row['symbol']}",
+            f"动作: {row['action']}",
+            f"处理结果: {row['decision']}",
+            f"信号时间: {row.get('signal_time', 'N/A')}",
+            f"执行时间: {row['created_at']}",
+            f"价格: {row.get('price', 'N/A')}",
+            f"仓位方向: {row.get('position_side', 'N/A')}",
+            f"原因: {row['reason'] or 'N/A'}",
         ]
     )
 

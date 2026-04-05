@@ -56,15 +56,15 @@ def format_backtest_summary_message(
 ) -> str:
     return "\n".join(
         [
-            "[BACKTEST]",
-            f"baseline: {baseline}",
-            f"candidate: {candidate}",
-            f"symbol: {symbol}",
-            f"timeframe: {timeframe}",
-            f"window: {window}",
-            f"trades: {trades}",
-            f"win_rate: {win_rate}",
-            f"net_profit: {net_profit}",
-            f"max_drawdown: {max_drawdown}",
+            "[回测结果]",
+            f"基线策略: {baseline}",
+            f"候选策略: {candidate}",
+            f"交易对: {symbol}",
+            f"周期: {timeframe}",
+            f"区间: {window}",
+            f"交易次数: {trades}",
+            f"胜率: {win_rate}",
+            f"净收益: {net_profit}",
+            f"最大回撤: {max_drawdown}",
         ]
     )
