@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.fetch_binance_market_snapshot import fetch_ticker_price
 from apps.shared.db import connect
+from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
@@ -53,19 +54,24 @@ def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float
     return round(pnl, 2), round(pnl_pct, 2)
 
 
-def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool) -> str:
+def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0) -> str:
     local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
-    return f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 当前价={price} 持仓=空仓 判断={bias} 动作={action} 已发送={'是' if emitted else '否'}"
+    return (
+        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 当前价={price} 初始资金={initial_capital:.2f} "
+        f"已实现盈亏={realized_pnl:+.2f} 未实现盈亏={unrealized_pnl:+.2f} 当前权益={current_equity:.2f} "
+        f"持仓=空仓 判断={bias} 动作={action} 已发送={'是' if emitted else '否'}"
+    )
 
 
-def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool) -> str:
+def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0) -> str:
     pnl, pnl_pct = compute_position_pnl(position=position, current_price=current_price)
     local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
     side_label = "多" if position["side"] == "long" else "空"
+    notional_usdt = round(float(position["qty"]) * current_price, 2)
     return (
-        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 数量={position['qty']} "
-        f"开仓价={position['entry_price']} 当前价={current_price} 浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% "
-        f"动作={action} 已发送={'是' if emitted else '否'}"
+        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 持仓数量(ETH)={position['qty']} 持仓名义金额(USDT)={notional_usdt:.2f} "
+        f"开仓价={position['entry_price']} 当前价={current_price} 已实现盈亏={realized_pnl:+.2f} 未实现盈亏={unrealized_pnl:+.2f} 当前权益={current_equity:.2f} "
+        f"浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% 动作={action} 已发送={'是' if emitted else '否'}"
     )
 
 
@@ -313,6 +319,14 @@ def emit_strategy_signals(loop_state: dict | None = None) -> dict:
 def print_cycle_summary(loop_state: dict) -> None:
     symbol = SYMBOL.replace("-", "")
     persistent_position = fetch_persistent_position(symbol=symbol)
+    initial_capital = 1000.0
+    realized_pnl = compute_realized_pnl()
+    unrealized_pnl = compute_unrealized_pnl(position=persistent_position, current_price=loop_state["price"])
+    current_equity = compute_current_equity(
+        initial_capital=initial_capital,
+        realized_pnl=realized_pnl,
+        unrealized_pnl=unrealized_pnl,
+    )
 
     if persistent_position is None:
         print(
@@ -324,6 +338,10 @@ def print_cycle_summary(loop_state: dict) -> None:
                 bias=loop_state["bias"],
                 action=loop_state["action"],
                 emitted=loop_state["emitted"],
+                initial_capital=initial_capital,
+                realized_pnl=realized_pnl,
+                unrealized_pnl=unrealized_pnl,
+                current_equity=current_equity,
             )
         )
         return
@@ -337,6 +355,10 @@ def print_cycle_summary(loop_state: dict) -> None:
             position=persistent_position,
             action=loop_state["action"],
             emitted=loop_state["emitted"],
+            initial_capital=initial_capital,
+            realized_pnl=realized_pnl,
+            unrealized_pnl=unrealized_pnl,
+            current_equity=current_equity,
         )
     )
 

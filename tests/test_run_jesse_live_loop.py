@@ -430,12 +430,64 @@ def test_render_position_summary_contains_floating_pnl_fields():
 
     assert text.startswith("[2026-04-05T21:03:30+08:00]")
     assert "持仓方向=多" in text
-    assert "数量=5.12" in text
+    assert "持仓数量(ETH)=5.12" in text
     assert "开仓价=2450.0" in text
     assert "当前价=2488.1" in text
     assert "浮动盈亏=" in text
     assert "浮动收益率=" in text
     assert "动作=hold" in text
+
+
+def test_render_flat_summary_contains_account_fields():
+    from scripts.run_jesse_live_loop import render_flat_summary
+
+    text = render_flat_summary(
+        timestamp="2026-04-05T21:03:20+08:00",
+        strategy="Ott2butKAMA",
+        symbol="ETHUSDT",
+        price=2057.99,
+        bias="flat",
+        action="none",
+        emitted=False,
+        initial_capital=1000.0,
+        realized_pnl=35.2,
+        unrealized_pnl=0.0,
+        current_equity=1035.2,
+    )
+
+    assert "初始资金=1000.00" in text
+    assert "已实现盈亏=+35.20" in text
+    assert "未实现盈亏=+0.00" in text
+    assert "当前权益=1035.20" in text
+
+
+def test_render_position_summary_contains_account_and_notional_fields():
+    from scripts.run_jesse_live_loop import render_position_summary
+
+    position = {
+        "side": "long",
+        "qty": 1.0,
+        "entry_price": 2058.05,
+    }
+
+    text = render_position_summary(
+        timestamp="2026-04-05T21:03:30+08:00",
+        strategy="Ott2butKAMA",
+        symbol="ETHUSDT",
+        current_price=2057.99,
+        position=position,
+        action="hold",
+        emitted=False,
+        initial_capital=1000.0,
+        realized_pnl=35.2,
+        unrealized_pnl=-0.06,
+        current_equity=1035.14,
+    )
+
+    assert "持仓名义金额(USDT)=2057.99" in text
+    assert "已实现盈亏=+35.20" in text
+    assert "未实现盈亏=-0.06" in text
+    assert "当前权益=1035.14" in text
 
 
 def test_compute_position_pnl_for_short_position():
@@ -487,6 +539,6 @@ def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, c
 
     output = capsys.readouterr().out.strip()
 
-    assert "数量=5.12" in output
+    assert "持仓数量(ETH)=5.12" in output
     assert "开仓价=2450.0" in output
     assert "当前价=2488.1" in output
