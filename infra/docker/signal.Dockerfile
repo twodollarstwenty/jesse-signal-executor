@@ -5,6 +5,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY runtime/jesse_workspace/requirements.txt runtime/jesse_workspace/requirements.txt
+RUN pip install --no-cache-dir -r runtime/jesse_workspace/requirements.txt
+
 COPY . .
 
 CMD ["python", "apps/signal_service/main.py"]

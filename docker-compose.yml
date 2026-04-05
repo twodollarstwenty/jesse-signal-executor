@@ -4,13 +4,30 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-jesse_signal_executor}
-      POSTGRES_USER: ${POSTGRES_USER:-app_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_password}
+      POSTGRES_DB: ${POSTGRES_DB:-jesse_db}
+      POSTGRES_USER: ${POSTGRES_USER:-jesse_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  db-init:
+    build:
+      context: .
+      dockerfile: infra/docker/executor.Dockerfile
+    command: python3 scripts/init_db.py
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-jesse_db}
+      POSTGRES_USER: ${POSTGRES_USER:-jesse_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
   adminer:
     image: adminer
     ports:
@@ -18,21 +35,57 @@ services:
     depends_on:
       - postgres
 
-  signal-service:
-    build:
-      context: .
-      dockerfile: infra/docker/signal.Dockerfile
-    command: python apps/signal_service/main.py
-    depends_on:
-      - postgres
-
-  executor-service:
+  executor:
     build:
       context: .
       dockerfile: infra/docker/executor.Dockerfile
-    command: python apps/executor_service/main.py
+    command: python3 scripts/run_executor_loop.py
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-jesse_db}
+      POSTGRES_USER: ${POSTGRES_USER:-jesse_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-0}
+      WECOM_BOT_WEBHOOK: ${WECOM_BOT_WEBHOOK:-}
+      EXECUTOR_HEARTBEAT_PATH: /app/runtime/dryrun/heartbeats/executor.heartbeat
+    volumes:
+      - .:/app
     depends_on:
-      - postgres
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "scripts/check_heartbeat.py", "--path", "/app/runtime/dryrun/heartbeats/executor.heartbeat", "--max-age-seconds", "30"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  jesse-dryrun:
+    build:
+      context: .
+      dockerfile: infra/docker/signal.Dockerfile
+    command: python3 scripts/run_jesse_dryrun_loop.py
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-jesse_db}
+      POSTGRES_USER: ${POSTGRES_USER:-jesse_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      NOTIFY_ENABLED: ${NOTIFY_ENABLED:-0}
+      WECOM_BOT_WEBHOOK: ${WECOM_BOT_WEBHOOK:-}
+      JESSE_HEARTBEAT_PATH: /app/runtime/dryrun/heartbeats/jesse-dryrun.heartbeat
+    volumes:
+      - .:/app
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python3", "scripts/check_heartbeat.py", "--path", "/app/runtime/dryrun/heartbeats/jesse-dryrun.heartbeat", "--max-age-seconds", "60"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   postgres_data:

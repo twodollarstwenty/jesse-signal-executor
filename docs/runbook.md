@@ -24,6 +24,34 @@
 
 - `bash scripts/status.sh`
 
+## Docker Dry-Run
+
+该路径会在容器内启动与当前宿主机 dry-run 相同的 runtime model，包括 `executor` 与 `jesse-dryrun` 两个服务。
+
+一键启动：
+
+```bash
+docker compose up -d
+```
+
+查看状态：
+
+```bash
+docker compose ps
+```
+
+查看日志：
+
+```bash
+docker compose logs -f executor jesse-dryrun
+```
+
+停止：
+
+```bash
+docker compose down
+```
+
 ## Non-Container Dry-Run
 
 前提：
