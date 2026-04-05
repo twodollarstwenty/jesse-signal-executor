@@ -1,4 +1,6 @@
 import os
+import json
+import urllib.request
 
 
 def notifications_enabled() -> bool:
@@ -18,10 +20,22 @@ def send_text_message(content: str) -> bool:
         return False
 
     try:
-        import requests
+        try:
+            import requests
 
-        response = requests.post(webhook, json=build_text_payload(content), timeout=5)
-        response.raise_for_status()
+            response = requests.post(webhook, json=build_text_payload(content), timeout=5)
+            response.raise_for_status()
+        except ModuleNotFoundError:
+            payload = json.dumps(build_text_payload(content)).encode("utf-8")
+            request = urllib.request.Request(
+                webhook,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                if getattr(response, "status", 200) >= 400:
+                    return False
     except Exception:
         return False
 
