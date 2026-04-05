@@ -1,5 +1,12 @@
 # Runbook
 
+默认命令上下文：除非特别说明，以下命令都在仓库根目录执行。
+
+虚拟环境约定：
+
+- 项目级脚本、pytest、数据库初始化等，使用项目虚拟环境：`.venv`。
+- Jesse runtime bootstrap 完成后，涉及 `jesse` CLI 或 runtime workspace 依赖的命令，使用 `runtime/jesse_workspace/.venv`。
+
 ## 初始化
 
 - 复制 `.env.example` 为 `.env`
@@ -17,10 +24,62 @@
 
 - `bash scripts/status.sh`
 
+## Non-Container Dry-Run
+
+前提：
+
+- 已完成 Jesse runtime bootstrap。
+- 项目虚拟环境 `.venv` 可用，供 `executor` 与 `scripts/check_heartbeat.py` 使用。
+- `runtime/jesse_workspace/.venv` 可用，供 `jesse-dryrun` 使用。
+- 以下命令默认在仓库根目录执行。
+- `dryrun_start.sh` 默认按本机 PostgreSQL 连接启动：`127.0.0.1:5432`，数据库 `jesse_db`，用户 `jesse_user`，密码 `password`；若已设置对应环境变量，则以环境变量覆盖默认值。
+- `jesse-dryrun` 默认执行项目内正式信号生产入口，而不是 `scripts/verify_jesse_imports.py` 这类占位检查命令。
+- 正式入口会在执行前校验 `runtime/jesse_workspace`、策略同步产物与导入路径，然后通过现有 Jesse bridge 向 `signal_events` 写入真实信号。
+
+启动：
+
+```bash
+bash scripts/dryrun_start.sh
+```
+
+查看状态：
+
+```bash
+bash scripts/dryrun_status.sh
+```
+
+状态含义：
+
+- `running`：进程存在，且 heartbeat 在有效时间内。
+- `stopped`：进程不存在，或 pid 文件对应进程已失效。
+- `stale`：进程仍存在，但 heartbeat 已过期。
+
+停止：
+
+```bash
+bash scripts/dryrun_stop.sh
+```
+
+运行产物：
+
+- 日志路径：`runtime/dryrun/logs/*.log`
+- heartbeat 路径：`runtime/dryrun/heartbeats/*.heartbeat`
+
+排障建议：
+
+- 先执行 `bash scripts/dryrun_status.sh`，确认 `executor` 与 `jesse-dryrun` 的进程状态与 heartbeat 状态。
+- 若状态异常，再查看 `runtime/dryrun/logs/*.log` 定位启动失败、退出或连接问题。
+- 若进程存活但没有业务流量，继续检查 `signal_events` 与 `execution_events` 是否有新增记录；这是 dry-run 是否真正有效的判定标准之一。
+
+Smoke 验证：
+
+- 当前一次宿主机 smoke 已执行 `bash scripts/dryrun_start.sh`、`bash scripts/dryrun_status.sh`、`bash scripts/dryrun_stop.sh`，结果为启动成功、状态可见、停止成功。
+
 ## 切换只平不开
 
 - `bash scripts/close_only.sh on`
 - `bash scripts/close_only.sh off`
+- 当前项目内可见行为是输出 `close_only=<value>`，用于切换运行时模式；本仓库上下文下未提供额外状态查询脚本。
 
 ## 最小 DB 闭环
 
