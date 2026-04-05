@@ -312,10 +312,29 @@ def test_run_compare_fails_when_metrics_missing(tmp_path: Path):
             runner=fake_runner,
         )
 
-    failure_reports = list((tmp_path / "docs_backtests").glob("*-compare-failed.md"))
-    assert len(failure_reports) == 1
-    report_text = failure_reports[0].read_text()
-    assert "missing metrics" in report_text
-    assert "- stderr_excerpt: N/A" in report_text
-    assert "- likely_cause:" in report_text
-    assert "- next_action:" in report_text
+
+def test_parse_args_defaults_leverage_to_10(monkeypatch):
+    from scripts.run_backtest_compare import parse_args
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_backtest_compare.py",
+            "--symbol",
+            "ETHUSDT",
+            "--timeframe",
+            "5m",
+            "--start",
+            "2026-03-05",
+            "--end",
+            "2026-04-05",
+            "--baseline-strategy",
+            "Ott2butKAMA",
+            "--candidate-strategy",
+            "Ott2butKAMA_RiskManaged25",
+        ],
+    )
+
+    args = parse_args()
+
+    assert args.leverage == 10

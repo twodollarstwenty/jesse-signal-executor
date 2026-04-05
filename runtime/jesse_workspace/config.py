@@ -10,7 +10,7 @@ config = {
                 "fee": 0.0004,
                 "balance": 10000,
                 "type": "futures",
-                "futures_leverage": 2,
+                "futures_leverage": 10,
             }
         }
     },

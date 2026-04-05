@@ -359,7 +359,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-tag", default="candidate")
     parser.add_argument("--initial-balance", type=float, default=10000)
     parser.add_argument("--fee", type=float, default=0.0004)
-    parser.add_argument("--leverage", type=int, default=2)
+    parser.add_argument("--leverage", type=int, default=10)
     parser.add_argument("--mode", default="futures")
     parser.add_argument("--exchange", default=DEFAULT_EXCHANGE)
     parser.add_argument("--workspace", default="runtime/jesse_workspace")

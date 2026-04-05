@@ -139,6 +139,7 @@ python3 -m apps.executor_service.cli
 说明：
 
 - 以下 `baseline==candidate` 命令用于框架 smoke 验收（验证对照流程、日志与报告产物），不用于评估策略优劣。
+- 未显式传入 `--leverage` 时，当前默认杠杆基线为 `10`（`10x`）。
 
 执行前检查：
 

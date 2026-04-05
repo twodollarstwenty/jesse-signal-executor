@@ -4,6 +4,8 @@
 
 当前活跃阶段路径：`backtest -> dry-run -> tiny live`
 
+当前仓库回测脚本与 Jesse runtime 的默认杠杆基线为 `10x`。
+
 ## 第一阶段目标
 
 - 使用 Jesse 作为策略信号来源
