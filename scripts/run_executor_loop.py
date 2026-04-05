@@ -10,8 +10,17 @@ from apps.executor_service.service import run_once
 def write_heartbeat(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f".{path.name}.tmp")
-    temp_path.write_text(datetime.now(timezone.utc).isoformat())
-    temp_path.replace(path)
+    payload = datetime.now(timezone.utc).isoformat()
+    last_error: FileNotFoundError | None = None
+    for _ in range(3):
+        temp_path.write_text(payload)
+        try:
+            temp_path.replace(path)
+            return
+        except FileNotFoundError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
 
 
 def parse_positive_interval(raw_value: str, *, env_name: str) -> float:

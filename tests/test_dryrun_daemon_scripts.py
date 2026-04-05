@@ -6,7 +6,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-SUCCESSFUL_JESSE_TEST_COMMAND = "python3 -c \"from pathlib import Path; p = Path(__import__('os').environ['JESSE_HEARTBEAT_PATH']); p.parent.mkdir(parents=True, exist_ok=True); p.write_text('ok')\""
+SUCCESSFUL_JESSE_TEST_COMMAND = "python3 -c \"import sys; from pathlib import Path; p = Path(sys.argv[1]); p.parent.mkdir(parents=True, exist_ok=True); p.write_text('ok')\""
+
+LONG_RUNNING_JESSE_TEST_SCRIPT = REPO_ROOT / "tests/fixtures/long_running_jesse_stub.py"
+
+
+def successful_jesse_command_for(runtime_root: Path) -> str:
+    heartbeat_path = runtime_root / "heartbeats" / "jesse-dryrun.heartbeat"
+    return f'{SUCCESSFUL_JESSE_TEST_COMMAND} "{heartbeat_path}"'
 
 
 def test_dryrun_start_script_exists():
@@ -50,7 +57,7 @@ def test_dryrun_start_script_replaces_mismatched_existing_pid(tmp_path):
 
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
+    env["JESSE_DRYRUN_COMMAND"] = successful_jesse_command_for(runtime_root)
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -75,11 +82,50 @@ def test_dryrun_start_script_replaces_mismatched_existing_pid(tmp_path):
     assert stop_completed.returncode == 0
 
 
+def test_dryrun_start_script_detects_existing_jesse_process_without_pid_file(tmp_path):
+    runtime_root = tmp_path / "runtime-root"
+    env = os.environ.copy()
+    env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
+    heartbeat_path = runtime_root / "heartbeats" / "jesse-dryrun.heartbeat"
+    env["JESSE_DRYRUN_COMMAND"] = f'python3 "{LONG_RUNNING_JESSE_TEST_SCRIPT}" "{heartbeat_path}"'
+
+    first = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert first.returncode == 0
+
+    (runtime_root / "pids" / "jesse-dryrun.pid").unlink()
+
+    second = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    stop_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_stop.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert second.returncode != 0
+    assert "already running without pid file" in second.stderr
+    assert stop_completed.returncode == 0
+
+
 def test_dryrun_start_script_exports_repo_root_for_python_processes(tmp_path):
     runtime_root = tmp_path / "runtime-root"
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
+    env["JESSE_DRYRUN_COMMAND"] = successful_jesse_command_for(runtime_root)
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -108,7 +154,7 @@ def test_dryrun_start_script_sets_local_db_defaults_only_when_unset(tmp_path):
     runtime_root = tmp_path / "runtime-root"
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
+    env["JESSE_DRYRUN_COMMAND"] = successful_jesse_command_for(runtime_root)
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -146,7 +192,7 @@ def test_dryrun_start_script_preserves_explicit_db_env_overrides(tmp_path):
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
     env["POSTGRES_USER"] = "definitely-not-a-real-user"
-    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
+    env["JESSE_DRYRUN_COMMAND"] = successful_jesse_command_for(runtime_root)
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],

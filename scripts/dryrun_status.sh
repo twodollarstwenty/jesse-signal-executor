@@ -12,7 +12,7 @@ STARTUP_GRACE_SECONDS="${DRYRUN_STARTUP_GRACE_SECONDS:-5}"
 
 get_command_line() {
   local pid="$1"
-  ps -p "${pid}" -o command= 2>/dev/null || true
+  ps eww -p "${pid}" -o command= 2>/dev/null || true
 }
 
 pid_matches_script() {

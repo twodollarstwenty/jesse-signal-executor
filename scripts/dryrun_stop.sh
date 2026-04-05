@@ -8,7 +8,7 @@ PID_DIR="${RUNTIME_DIR}/pids"
 
 get_command_line() {
   local pid="$1"
-  ps -p "${pid}" -o command= 2>/dev/null || true
+  ps eww -p "${pid}" -o command= 2>/dev/null || true
 }
 
 pid_matches_script() {

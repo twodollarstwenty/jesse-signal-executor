@@ -12,6 +12,25 @@ STRATEGY_NAME = "Ott2butKAMA"
 SYMBOL = "ETH-USDT"
 TIMEFRAME = "5m"
 ACTIVE_LOOP_STATE: dict | None = None
+LAST_EMITTED_ACTION: str | None = None
+
+
+def get_last_action_file() -> Path:
+    return Path(os.getenv("JESSE_LAST_ACTION_FILE", str(ROOT / "runtime" / "dryrun" / "last_action.txt")))
+
+
+def read_last_emitted_action() -> str | None:
+    path = get_last_action_file()
+    if not path.exists():
+        return None
+    text = path.read_text().strip()
+    return text or None
+
+
+def write_last_emitted_action(action: str) -> None:
+    path = get_last_action_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(action)
 
 
 def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float, float]:
@@ -231,11 +250,24 @@ def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
 
 
 def emit_strategy_signals(loop_state: dict | None = None) -> dict:
+    global LAST_EMITTED_ACTION
+
     loop_state = loop_state or ACTIVE_LOOP_STATE or build_loop_state()
     strategy = build_strategy_instance()
     strategy._loop_state = loop_state
     configure_strategy_for_signal_cycle(strategy)
-    emitted = drive_strategy_cycle(strategy, loop_state)
+
+    action = loop_state.get("action", "none")
+    remembered_action = read_last_emitted_action() or LAST_EMITTED_ACTION
+    if action == "none":
+        emitted = False
+    elif action == remembered_action:
+        emitted = False
+    else:
+        emitted = drive_strategy_cycle(strategy, loop_state)
+        if emitted:
+            LAST_EMITTED_ACTION = action
+            write_last_emitted_action(action)
 
     return {
         **loop_state,

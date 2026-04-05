@@ -33,7 +33,20 @@ mkdir -p "${PID_DIR}" "${LOG_DIR}" "${HEARTBEAT_DIR}"
 
 get_command_line() {
   local pid="$1"
-  ps -p "${pid}" -o command= 2>/dev/null || true
+  ps eww -p "${pid}" -o command= 2>/dev/null || true
+}
+
+find_running_pid_for_script() {
+  local expected_script="$1"
+  local heartbeat_file="$2"
+  local pid command
+
+  while read -r pid command; do
+    if [[ -n "${pid}" ]] && [[ "${command}" == *"${heartbeat_file}"* ]]; then
+      printf '%s\n' "${pid}"
+      return 0
+    fi
+  done < <(ps -ax -o pid= -o command=)
 }
 
 pid_matches_script() {
@@ -140,6 +153,13 @@ start_process() {
   local heartbeat_env_name="$7"
 
   cleanup_stale_pid "${pid_file}" "${script_path}"
+
+  local existing_pid
+  existing_pid="$(find_running_pid_for_script "${script_path}" "${heartbeat_file}" | head -n 1)"
+  if [[ -n "${existing_pid}" ]] && [[ ! -f "${pid_file}" ]]; then
+    printf '%s already running without pid file (pid=%s)\n' "${name}" "${existing_pid}" >&2
+    return 1
+  fi
 
   if [[ -f "${pid_file}" ]]; then
     printf '%s already running (pid=%s)\n' "${name}" "$(<"${pid_file}")"

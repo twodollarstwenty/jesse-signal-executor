@@ -16,6 +16,54 @@ def test_write_heartbeat_updates_timestamp_file(tmp_path: Path):
     assert parsed.tzinfo is not None
 
 
+def test_write_heartbeat_recovers_if_temp_file_disappears_before_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from scripts.run_executor_loop import write_heartbeat
+
+    heartbeat_path = tmp_path / "executor.heartbeat"
+    original_replace = Path.replace
+    replace_calls = {"count": 0}
+
+    def flaky_replace(self: Path, target: Path):
+        replace_calls["count"] += 1
+        if replace_calls["count"] == 1:
+            if self.exists():
+                self.unlink()
+            raise FileNotFoundError("simulated tmp file race")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    write_heartbeat(heartbeat_path)
+
+    assert heartbeat_path.exists()
+    parsed = datetime.fromisoformat(heartbeat_path.read_text().strip())
+    assert parsed.tzinfo is not None
+
+
+def test_write_heartbeat_retries_multiple_replace_races_before_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from scripts.run_executor_loop import write_heartbeat
+
+    heartbeat_path = tmp_path / "executor.heartbeat"
+    original_replace = Path.replace
+    replace_calls = {"count": 0}
+
+    def flaky_replace(self: Path, target: Path):
+        replace_calls["count"] += 1
+        if replace_calls["count"] <= 2:
+            if self.exists():
+                self.unlink()
+            raise FileNotFoundError("simulated repeated tmp file race")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    write_heartbeat(heartbeat_path)
+
+    assert heartbeat_path.exists()
+    parsed = datetime.fromisoformat(heartbeat_path.read_text().strip())
+    assert parsed.tzinfo is not None
+
+
 def test_check_heartbeat_returns_true_for_recent_file(tmp_path: Path):
     from scripts.check_heartbeat import is_healthy
     from scripts.run_executor_loop import write_heartbeat

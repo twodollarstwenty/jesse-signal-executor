@@ -77,6 +77,15 @@ def test_emit_strategy_signals_calls_strategy_entrypoints(monkeypatch: pytest.Mo
     strategy.sell = None
 
     calls: list[str] = []
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "long",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2506.8},
+        "action": "open_long",
+        "last_action": "open_long",
+    }
 
     def fake_new_strategy():
         return strategy
@@ -84,10 +93,139 @@ def test_emit_strategy_signals_calls_strategy_entrypoints(monkeypatch: pytest.Mo
     monkeypatch.setattr(module, "build_strategy_instance", fake_new_strategy)
     monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current: calls.append("configure"))
     monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: calls.append("drive"))
+    monkeypatch.setattr(module, "read_last_emitted_action", lambda: None)
+    monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
+    module.LAST_EMITTED_ACTION = None
 
-    module.emit_strategy_signals()
+    module.emit_strategy_signals(loop_state)
 
     assert calls == ["configure", "drive"]
+
+
+def test_emit_strategy_signals_suppresses_repeated_identical_action(monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "long",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2506.8},
+        "action": "open_long",
+        "last_action": "open_long",
+    }
+
+    monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
+    monkeypatch.setattr(module, "read_last_emitted_action", lambda: "open_long")
+    monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
+    module.LAST_EMITTED_ACTION = "open_long"
+
+    result = module.emit_strategy_signals(loop_state)
+
+    assert result["emitted"] is False
+
+
+def test_emit_strategy_signals_emits_when_action_changes(monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "short",
+        "position": {"side": "short", "qty": 1.0, "entry_price": 2526.8},
+        "action": "close_short",
+        "last_action": "close_short",
+    }
+
+    monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
+    monkeypatch.setattr(module, "read_last_emitted_action", lambda: None)
+    monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
+    module.LAST_EMITTED_ACTION = "open_short"
+
+    result = module.emit_strategy_signals(loop_state)
+
+    assert result["emitted"] is True
+
+
+def test_emit_strategy_signals_suppresses_repeated_action_across_process_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "long",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2506.8},
+        "action": "open_long",
+        "last_action": "open_long",
+    }
+
+    state_file = tmp_path / "last_action.txt"
+    state_file.write_text("open_long")
+    monkeypatch.setenv("JESSE_LAST_ACTION_FILE", str(state_file))
+    monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
+    module.LAST_EMITTED_ACTION = None
+
+    result = module.emit_strategy_signals(loop_state)
+
+    assert result["emitted"] is False
+
+
+def test_emit_strategy_signals_persists_new_action_for_next_process(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "short",
+        "position": {"side": "short", "qty": 1.0, "entry_price": 2526.8},
+        "action": "close_short",
+        "last_action": "close_short",
+    }
+
+    state_file = tmp_path / "last_action.txt"
+    monkeypatch.setenv("JESSE_LAST_ACTION_FILE", str(state_file))
+    monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
+    module.LAST_EMITTED_ACTION = None
+
+    result = module.emit_strategy_signals(loop_state)
+
+    assert result["emitted"] is True
+    assert state_file.read_text().strip() == "close_short"
 
 
 def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
