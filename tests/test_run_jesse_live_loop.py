@@ -23,7 +23,7 @@ def test_ensure_runtime_ready_raises_when_workspace_missing(tmp_path: Path, monk
         module.ensure_runtime_ready()
 
 
-def test_run_cycle_syncs_strategy_and_executes_strategy_step(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import scripts.run_jesse_live_loop as module
 
     calls: list[str] = []
@@ -31,14 +31,13 @@ def test_run_cycle_syncs_strategy_and_executes_strategy_step(tmp_path: Path, mon
     workspace.mkdir(parents=True)
 
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
-    monkeypatch.setattr(module, "sync_strategy", lambda strategy_name: calls.append(f"sync:{strategy_name}"))
     monkeypatch.setattr(module, "emit_strategy_signals", lambda: calls.append(f"emit:{Path.cwd()}"))
 
     original_cwd = Path.cwd()
 
     module.run_cycle()
 
-    assert calls == [f"sync:Ott2butKAMA", f"emit:{workspace}"]
+    assert calls == [f"emit:{workspace}"]
     assert Path.cwd() == original_cwd
 
 
@@ -84,7 +83,7 @@ def test_emit_strategy_signals_calls_strategy_entrypoints(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(module, "build_strategy_instance", fake_new_strategy)
     monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current: calls.append("configure"))
-    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current: calls.append("drive"))
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: calls.append("drive"))
 
     module.emit_strategy_signals()
 
@@ -124,8 +123,6 @@ def test_build_strategy_instance_imports_from_runtime_workspace(tmp_path: Path, 
     source_package = tmp_path / "strategies" / "jesse" / "Ott2butKAMA"
     runtime_package.mkdir(parents=True)
     source_package.mkdir(parents=True)
-    (workspace / "__init__.py").write_text("")
-    (workspace / "strategies" / "__init__.py").write_text("")
     (runtime_package / "__init__.py").write_text(
         "class Ott2butKAMA:\n    source = 'runtime'\n"
     )
@@ -138,10 +135,6 @@ def test_build_strategy_instance_imports_from_runtime_workspace(tmp_path: Path, 
     module.prepare_import_path(workspace)
 
     for name in [
-        "runtime",
-        "runtime.jesse_workspace",
-        "runtime.jesse_workspace.strategies",
-        "runtime.jesse_workspace.strategies.Ott2butKAMA",
         "Ott2butKAMA",
     ]:
         sys.modules.pop(name, None)
@@ -254,3 +247,67 @@ def test_configure_strategy_for_signal_cycle_does_not_eagerly_call_original_prop
     assert strategy.cross_up is False
     assert strategy.is_long is True
     assert strategy.is_short is False
+
+
+def test_render_flat_summary_contains_price_bias_action_and_emitted_flag():
+    from scripts.run_jesse_live_loop import render_flat_summary
+
+    text = render_flat_summary(
+        timestamp="2026-04-05T21:03:20+08:00",
+        strategy="Ott2butKAMA",
+        symbol="ETHUSDT",
+        price=2488.1,
+        bias="flat",
+        action="none",
+        emitted=False,
+    )
+
+    assert "strategy=Ott2butKAMA" in text
+    assert "symbol=ETHUSDT" in text
+    assert "price=2488.1" in text
+    assert "bias=flat" in text
+    assert "action=none" in text
+    assert "emitted=no" in text
+
+
+def test_render_position_summary_contains_floating_pnl_fields():
+    from scripts.run_jesse_live_loop import render_position_summary
+
+    position = {
+        "side": "long",
+        "qty": 5.12,
+        "entry_price": 2450.0,
+    }
+
+    text = render_position_summary(
+        timestamp="2026-04-05T21:03:30+08:00",
+        strategy="Ott2butKAMA",
+        symbol="ETHUSDT",
+        current_price=2488.1,
+        position=position,
+        action="hold",
+        emitted=False,
+    )
+
+    assert "side=long" in text
+    assert "qty=5.12" in text
+    assert "entry=2450.0" in text
+    assert "price=2488.1" in text
+    assert "pnl=" in text
+    assert "pnl_pct=" in text
+    assert "action=hold" in text
+
+
+def test_compute_position_pnl_for_short_position():
+    from scripts.run_jesse_live_loop import compute_position_pnl
+
+    position = {
+        "side": "short",
+        "qty": 2.0,
+        "entry_price": 2500.0,
+    }
+
+    pnl, pnl_pct = compute_position_pnl(position=position, current_price=2400.0)
+
+    assert pnl == 200.0
+    assert pnl_pct == 4.0

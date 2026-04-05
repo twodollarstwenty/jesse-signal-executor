@@ -1,13 +1,100 @@
 import os
 import sys
+from datetime import datetime, timezone
 from importlib import import_module
 from contextlib import contextmanager
 from pathlib import Path
 
-from scripts.sync_jesse_strategy import sync_strategy
-
-
 ROOT = Path(__file__).resolve().parents[1]
+STRATEGY_NAME = "Ott2butKAMA"
+SYMBOL = "ETH-USDT"
+TIMEFRAME = "5m"
+ACTIVE_LOOP_STATE: dict | None = None
+
+
+def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float, float]:
+    side = position["side"]
+    qty = float(position["qty"])
+    entry_price = float(position["entry_price"])
+
+    if side == "short":
+        pnl = (entry_price - current_price) * qty
+        pnl_pct = ((entry_price - current_price) / entry_price) * 100
+    else:
+        pnl = (current_price - entry_price) * qty
+        pnl_pct = ((current_price - entry_price) / entry_price) * 100
+
+    return round(pnl, 2), round(pnl_pct, 2)
+
+
+def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool) -> str:
+    return f"[{timestamp}] strategy={strategy} symbol={symbol} price={price} position=flat bias={bias} action={action} emitted={'yes' if emitted else 'no'}"
+
+
+def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool) -> str:
+    pnl, pnl_pct = compute_position_pnl(position=position, current_price=current_price)
+    return (
+        f"[{timestamp}] strategy={strategy} symbol={symbol} side={position['side']} qty={position['qty']} "
+        f"entry={position['entry_price']} price={current_price} pnl={pnl:+.2f} pnl_pct={pnl_pct:+.2f}% "
+        f"action={action} emitted={'yes' if emitted else 'no'}"
+    )
+
+
+def build_loop_state(now: datetime | None = None) -> dict:
+    current_time = now or datetime.now(timezone.utc)
+    step = int(current_time.timestamp() // 10)
+    phase = step % 8
+    price_offset = (phase - 3) * 7.5
+    drift = (step % 3) * 1.2
+    current_price = round(2500.0 + price_offset + drift, 2)
+    candle_timestamp = int(current_time.timestamp() * 1000)
+
+    position = None
+    bias = "flat"
+    action = "none"
+
+    if phase in {1, 2, 3}:
+        position = {
+            "side": "long",
+            "qty": 1.0,
+            "entry_price": round(current_price - (10.0 + phase), 2),
+        }
+        bias = "long"
+        action = "open_long" if phase == 1 else ("close_long" if phase == 3 else "none")
+    elif phase in {5, 6, 7}:
+        position = {
+            "side": "short",
+            "qty": 1.0,
+            "entry_price": round(current_price + (10.0 + (phase - 4)), 2),
+        }
+        bias = "short"
+        action = "open_short" if phase == 5 else ("close_short" if phase == 7 else "none")
+
+    return {
+        "timestamp": current_time.isoformat(),
+        "step": step,
+        "phase": phase,
+        "price": current_price,
+        "candle_timestamp": candle_timestamp,
+        "bias": bias,
+        "position": position,
+        "action": action,
+        "last_action": action,
+    }
+
+
+def build_default_loop_state() -> dict:
+    return {
+        "timestamp": "2024-04-04T00:00:00+00:00",
+        "step": 0,
+        "phase": 0,
+        "price": 2500.0,
+        "candle_timestamp": 1712188800000,
+        "bias": "long",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2500.0},
+        "action": "close_long",
+        "last_action": "close_long",
+    }
 
 
 def build_workspace_path() -> Path:
@@ -63,44 +150,107 @@ def _set_runtime_attr(strategy, name: str, value) -> None:
 
 
 def build_strategy_instance():
-    Ott2butKAMA = import_module("runtime.jesse_workspace.strategies.Ott2butKAMA").Ott2butKAMA
+    Ott2butKAMA = import_module(STRATEGY_NAME).Ott2butKAMA
 
     return object.__new__(Ott2butKAMA)
 
 
-def configure_strategy_for_signal_cycle(strategy) -> None:
+def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None) -> None:
+    loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
+    price = loop_state["price"]
+    side = loop_state["position"]["side"] if loop_state["position"] else None
+
     strategy.exchange = "Binance Perpetual Futures"
-    strategy.symbol = "ETH-USDT"
-    strategy.timeframe = "5m"
+    strategy.symbol = SYMBOL
+    strategy.timeframe = TIMEFRAME
     strategy.buy = None
     strategy.sell = None
     strategy.liquidate = lambda: None
     _set_runtime_attr(strategy, "pos_size", 1.0)
-    _set_runtime_attr(strategy, "current_candle", [1712188800000, 2500.0, 2500.0, 2510.0, 2490.0, 100.0])
-    _set_runtime_attr(strategy, "price", 2500.0)
-    _set_runtime_attr(strategy, "cross_down", True)
-    _set_runtime_attr(strategy, "cross_up", False)
-    _set_runtime_attr(strategy, "is_long", True)
-    _set_runtime_attr(strategy, "is_short", False)
+    _set_runtime_attr(strategy, "current_candle", [loop_state["candle_timestamp"], price, price, price + 10.0, price - 10.0, 100.0])
+    _set_runtime_attr(strategy, "price", price)
+    _set_runtime_attr(strategy, "cross_down", loop_state["action"] == "close_long")
+    _set_runtime_attr(strategy, "cross_up", loop_state["action"] == "close_short")
+    _set_runtime_attr(strategy, "is_long", side == "long")
+    _set_runtime_attr(strategy, "is_short", side == "short")
 
 
-def drive_strategy_cycle(strategy) -> None:
-    strategy.go_long()
-    strategy.update_position()
+def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
+    loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
+    action = loop_state["action"]
+    emitted = False
+
+    if action == "open_long":
+        strategy.go_long()
+        emitted = True
+    elif action == "open_short":
+        strategy.go_short()
+        emitted = True
+    elif action in {"close_long", "close_short"}:
+        strategy.update_position()
+        emitted = True
+
+    return emitted
 
 
-def emit_strategy_signals() -> None:
+def emit_strategy_signals(loop_state: dict | None = None) -> dict:
+    loop_state = loop_state or ACTIVE_LOOP_STATE or build_loop_state()
     strategy = build_strategy_instance()
+    strategy._loop_state = loop_state
     configure_strategy_for_signal_cycle(strategy)
-    drive_strategy_cycle(strategy)
+    emitted = drive_strategy_cycle(strategy, loop_state)
+
+    return {
+        **loop_state,
+        "emitted": emitted,
+    }
+
+
+def print_cycle_summary(loop_state: dict) -> None:
+    symbol = SYMBOL.replace("-", "")
+
+    if loop_state["position"] is None:
+        print(
+            render_flat_summary(
+                timestamp=loop_state["timestamp"],
+                strategy=STRATEGY_NAME,
+                symbol=symbol,
+                price=loop_state["price"],
+                bias=loop_state["bias"],
+                action=loop_state["action"],
+                emitted=loop_state["emitted"],
+            )
+        )
+        return
+
+    print(
+        render_position_summary(
+            timestamp=loop_state["timestamp"],
+            strategy=STRATEGY_NAME,
+            symbol=symbol,
+            current_price=loop_state["price"],
+            position=loop_state["position"],
+            action=loop_state["action"],
+            emitted=loop_state["emitted"],
+        )
+    )
 
 
 def run_cycle() -> None:
+    global ACTIVE_LOOP_STATE
+
     workspace = ensure_runtime_ready()
-    sync_strategy("Ott2butKAMA")
     prepare_import_path(workspace)
+    loop_state = build_loop_state()
+    ACTIVE_LOOP_STATE = loop_state
     with workspace_cwd(workspace):
-        emit_strategy_signals()
+        emitted_loop_state = emit_strategy_signals()
+    ACTIVE_LOOP_STATE = None
+    if isinstance(emitted_loop_state, dict):
+        loop_state = emitted_loop_state
+    else:
+        loop_state = {**loop_state, "emitted": False}
+    print_cycle_summary(loop_state)
 
 
 def main() -> None:

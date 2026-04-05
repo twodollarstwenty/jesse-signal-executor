@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from scripts.run_executor_loop import parse_positive_interval, write_heartbeat
+from scripts.sync_jesse_strategy import sync_strategy
 
 
 def main() -> None:
@@ -21,6 +22,8 @@ def main() -> None:
 
     if not args:
         raise ValueError("JESSE_DRYRUN_COMMAND must not be empty")
+
+    sync_strategy("Ott2butKAMA")
 
     while True:
         subprocess.run(args, check=True)
