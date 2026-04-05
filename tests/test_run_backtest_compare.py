@@ -218,6 +218,65 @@ def test_run_compare_uses_same_exchange_for_baseline_and_candidate(tmp_path: Pat
     assert candidate_argv[candidate_argv.index("--exchange") + 1] == "Bybit USDT Perpetual"
 
 
+def test_run_compare_sends_non_fatal_backtest_summary_notification(monkeypatch, tmp_path: Path):
+    from scripts.run_backtest_compare import run_compare
+
+    seen: dict[str, object] = {}
+
+    def fake_runner(_argv: list[str], _cwd: Path):
+        return "\n".join(
+            [
+                "Total Closed Trades: 7",
+                "Win Rate: 57.0%",
+                "Net Profit: 9.10%",
+                "Max Drawdown: 3.40%",
+            ]
+        )
+
+    def fake_format(**kwargs):
+        seen["format_kwargs"] = kwargs
+        return "formatted summary"
+
+    def fake_send(message: str):
+        seen["message"] = message
+        raise RuntimeError("wecom unavailable")
+
+    monkeypatch.setattr("scripts.run_backtest_compare.format_backtest_summary_message", fake_format)
+    monkeypatch.setattr("scripts.run_backtest_compare.send_text_message", fake_send)
+
+    report = run_compare(
+        symbol="ETHUSDT",
+        timeframe="5m",
+        start="2024-01-01",
+        end="2024-02-01",
+        baseline_strategy="Ott2butKAMA",
+        candidate_strategy="Ott2butKAMA_RiskManaged25",
+        baseline_tag="baseline",
+        candidate_tag="candidate",
+        initial_balance=10000,
+        fee=0.0004,
+        leverage=2,
+        mode="futures",
+        workspace=tmp_path,
+        docs_dir=tmp_path / "docs_backtests",
+        runner=fake_runner,
+    )
+
+    assert report.exists()
+    assert seen["message"] == "formatted summary"
+    assert seen["format_kwargs"] == {
+        "baseline": "baseline",
+        "candidate": "candidate",
+        "symbol": "ETHUSDT",
+        "timeframe": "5m",
+        "window": "2024-01-01 -> 2024-02-01",
+        "trades": "7",
+        "win_rate": "57.0%",
+        "net_profit": "9.10%",
+        "max_drawdown": "3.40%",
+    }
+
+
 def test_run_compare_rejects_unsafe_tag(tmp_path: Path):
     from scripts.run_backtest_compare import run_compare
 

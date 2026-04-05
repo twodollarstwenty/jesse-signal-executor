@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from apps.notifications.wecom import format_backtest_summary_message, send_text_message
+
 
 MetricMap = dict[str, str]
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -326,6 +328,22 @@ def run_compare(
             comparability_note="symbol/timeframe/window/fee/leverage/balance/mode are fixed",
             conclusion="compare using table above",
         )
+        try:
+            send_text_message(
+                format_backtest_summary_message(
+                    baseline=baseline_tag,
+                    candidate=candidate_tag,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    window=f"{start} -> {end}",
+                    trades=baseline_metrics["trades"] if baseline_tag == candidate_tag else candidate_metrics["trades"],
+                    win_rate=candidate_metrics["win_rate"],
+                    net_profit=candidate_metrics["net_profit"],
+                    max_drawdown=candidate_metrics["max_drawdown"],
+                )
+            )
+        except Exception:
+            pass
         return report_path
     except Exception as exc:
         error_text = str(exc)
