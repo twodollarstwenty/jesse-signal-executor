@@ -35,3 +35,41 @@
 ## 启动方式
 
 后续通过 `docker compose up -d` 运行。
+
+## Dry-Run Quick Start
+
+最小启动流程：
+
+```bash
+cp .env.example .env
+# 按实际环境修改 .env
+
+source .venv/bin/activate
+python3 scripts/init_db.py
+
+set -a && source .env && set +a
+bash scripts/dryrun_start.sh
+bash scripts/dryrun_status.sh
+python3 scripts/summarize_dryrun_validation.py --minutes 60
+```
+
+查看日志：
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+for name in ["executor.log", "jesse-dryrun.log"]:
+    path = Path("runtime/dryrun/logs") / name
+    print(f"\n===== {name} =====")
+    if path.exists():
+        print(path.read_text()[-4000:])
+    else:
+        print("missing")
+PY
+```
+
+停止：
+
+```bash
+bash scripts/dryrun_stop.sh
+```
