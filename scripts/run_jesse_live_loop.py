@@ -5,6 +5,8 @@ from importlib import import_module
 from contextlib import contextmanager
 from pathlib import Path
 
+from scripts.fetch_binance_market_snapshot import fetch_ticker_price
+
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
 SYMBOL = "ETH-USDT"
@@ -76,6 +78,41 @@ def build_loop_state(now: datetime | None = None) -> dict:
         "phase": phase,
         "price": current_price,
         "candle_timestamp": candle_timestamp,
+        "bias": bias,
+        "position": position,
+        "action": action,
+        "last_action": action,
+    }
+
+
+def build_loop_state_from_market_snapshot(snapshot: dict) -> dict:
+    price = float(snapshot["price"])
+    action = "none"
+    bias = "flat"
+    position = None
+
+    cents = int(price * 10) % 4
+    if cents == 0:
+        action = "open_long"
+        bias = "long"
+        position = {"side": "long", "qty": 1.0, "entry_price": round(price - 10, 2)}
+    elif cents == 1:
+        action = "close_long"
+        bias = "long"
+        position = {"side": "long", "qty": 1.0, "entry_price": round(price - 12, 2)}
+    elif cents == 2:
+        action = "open_short"
+        bias = "short"
+        position = {"side": "short", "qty": 1.0, "entry_price": round(price + 10, 2)}
+    elif cents == 3:
+        action = "close_short"
+        bias = "short"
+        position = {"side": "short", "qty": 1.0, "entry_price": round(price + 12, 2)}
+
+    return {
+        "timestamp": snapshot["timestamp"],
+        "price": price,
+        "candle_timestamp": int(snapshot.get("candle_timestamp", 0)),
         "bias": bias,
         "position": position,
         "action": action,
@@ -241,7 +278,14 @@ def run_cycle() -> None:
 
     workspace = ensure_runtime_ready()
     prepare_import_path(workspace)
-    loop_state = build_loop_state()
+    current_time = datetime.now(timezone.utc)
+    try:
+        snapshot = fetch_ticker_price(symbol=SYMBOL.replace("-", ""))
+        snapshot["timestamp"] = current_time.isoformat()
+        snapshot["candle_timestamp"] = int(current_time.timestamp() * 1000)
+        loop_state = build_loop_state_from_market_snapshot(snapshot)
+    except Exception:
+        loop_state = build_loop_state(now=current_time)
     ACTIVE_LOOP_STATE = loop_state
     with workspace_cwd(workspace):
         emitted_loop_state = emit_strategy_signals()

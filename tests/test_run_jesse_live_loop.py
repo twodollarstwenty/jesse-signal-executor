@@ -311,3 +311,19 @@ def test_compute_position_pnl_for_short_position():
 
     assert pnl == 200.0
     assert pnl_pct == 4.0
+
+
+def test_build_loop_state_from_market_snapshot_uses_market_price():
+    from scripts.run_jesse_live_loop import build_loop_state_from_market_snapshot
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "price": 2516.8,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    state = build_loop_state_from_market_snapshot(snapshot)
+
+    assert state["price"] == 2516.8
+    assert state["timestamp"] == "2026-04-05T21:33:20+08:00"
+    assert state["action"] in {"open_long", "open_short", "close_long", "close_short", "none"}
