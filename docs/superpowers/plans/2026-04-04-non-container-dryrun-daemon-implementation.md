@@ -1,5 +1,7 @@
 # Non-Container Dry-Run Daemon Implementation Plan
 
+> Superseded by `docs/superpowers/plans/2026-04-05-final-jesse-dryrun-daemon-implementation.md`. Keep this file as historical implementation context only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 以宿主机双进程守护方式运行 Jesse dry-run 与 executor loop，并提供 start/stop/status/log/heartbeat 基础运维能力。

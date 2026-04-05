@@ -75,21 +75,6 @@ Smoke 验证：
 
 - 当前一次宿主机 smoke 已执行 `bash scripts/dryrun_start.sh`、`bash scripts/dryrun_status.sh`、`bash scripts/dryrun_stop.sh`，结果为启动成功、状态可见、停止成功。
 
-## 切换只平不开
-
-- `bash scripts/close_only.sh on`
-- `bash scripts/close_only.sh off`
-- 当前项目内可见行为是输出 `close_only=<value>`，用于切换运行时模式；本仓库上下文下未提供额外状态查询脚本。
-
-## 最小 DB 闭环
-
-```bash
-source .venv/bin/activate
-python3 scripts/init_db.py
-python3 -m apps.signal_service.cli --strategy Ott2butKAMA --symbol ETHUSDT --timeframe 5m --signal-time 2026-04-04T00:00:00Z --action open_long
-python3 -m apps.executor_service.cli
-```
-
 ## Jesse Runtime Bootstrap
 
 ```bash
@@ -124,6 +109,21 @@ python3 scripts/verify_jesse_imports.py
 
 - pytest 用例是 bridge 回归验收基线
 - smoke 脚本 `scripts/smoke_test_ott2butkama_bridge.py` 仅作为开发联调用辅助，不作为验收标准
+
+## 最小 DB 闭环
+
+```bash
+source .venv/bin/activate
+python3 scripts/init_db.py
+python3 -m apps.signal_service.cli --strategy Ott2butKAMA --symbol ETHUSDT --timeframe 5m --signal-time 2026-04-04T00:00:00Z --action open_long
+python3 -m apps.executor_service.cli
+```
+
+## 切换只平不开
+
+- `bash scripts/close_only.sh on`
+- `bash scripts/close_only.sh off`
+- 当前项目内可见行为是输出 `close_only=<value>`，用于切换运行时模式；本仓库上下文下未提供额外状态查询脚本。
 
 ## Backtest Compare
 
