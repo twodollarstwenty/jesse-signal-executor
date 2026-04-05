@@ -18,7 +18,10 @@ def format_execution_event_message(row: dict) -> str:
             f"symbol: {row['symbol']}",
             f"action: {row['action']}",
             f"decision: {row['decision']}",
-            f"time: {row['created_at']}",
+            f"signal_time: {row.get('signal_time', 'N/A')}",
+            f"execution_time: {row['created_at']}",
+            f"price: {row.get('price', 'N/A')}",
+            f"position_side: {row.get('position_side', 'N/A')}",
             f"reason: {row['reason'] or 'N/A'}",
         ]
     )
@@ -30,7 +33,7 @@ def fetch_recent_execution_events(limit: int = 20) -> list[dict]:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT e.created_at, s.strategy, e.symbol, s.action, e.status, NULL
+                SELECT e.created_at, s.signal_time, s.strategy, e.symbol, s.action, e.status, NULL, s.payload_json
                 FROM execution_events e
                 JOIN signal_events s ON s.id = e.signal_id
                 ORDER BY e.created_at DESC
@@ -45,11 +48,14 @@ def fetch_recent_execution_events(limit: int = 20) -> list[dict]:
     return [
         {
             "created_at": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
-            "strategy": row[1],
-            "symbol": row[2],
-            "action": row[3],
-            "decision": row[4],
-            "reason": row[5],
+            "signal_time": row[1].isoformat() if hasattr(row[1], "isoformat") else str(row[1]),
+            "strategy": row[2],
+            "symbol": row[3],
+            "action": row[4],
+            "decision": row[5],
+            "reason": row[6],
+            "price": (row[7] or {}).get("price", "N/A"),
+            "position_side": (row[7] or {}).get("position_side", "N/A"),
         }
         for row in rows
     ]
