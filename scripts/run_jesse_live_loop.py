@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from importlib import import_module
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,6 +14,7 @@ SYMBOL = "ETH-USDT"
 TIMEFRAME = "5m"
 ACTIVE_LOOP_STATE: dict | None = None
 LAST_EMITTED_ACTION: str | None = None
+CST = timezone(timedelta(hours=8))
 
 
 def get_last_action_file() -> Path:
@@ -53,15 +54,18 @@ def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float
 
 
 def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool) -> str:
-    return f"[{timestamp}] strategy={strategy} symbol={symbol} price={price} position=flat bias={bias} action={action} emitted={'yes' if emitted else 'no'}"
+    local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
+    return f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 当前价={price} 持仓=空仓 判断={bias} 动作={action} 已发送={'是' if emitted else '否'}"
 
 
 def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool) -> str:
     pnl, pnl_pct = compute_position_pnl(position=position, current_price=current_price)
+    local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
+    side_label = "多" if position["side"] == "long" else "空"
     return (
-        f"[{timestamp}] strategy={strategy} symbol={symbol} side={position['side']} qty={position['qty']} "
-        f"entry={position['entry_price']} price={current_price} pnl={pnl:+.2f} pnl_pct={pnl_pct:+.2f}% "
-        f"action={action} emitted={'yes' if emitted else 'no'}"
+        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 数量={position['qty']} "
+        f"开仓价={position['entry_price']} 当前价={current_price} 浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% "
+        f"动作={action} 已发送={'是' if emitted else '否'}"
     )
 
 

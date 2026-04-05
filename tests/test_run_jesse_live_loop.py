@@ -400,12 +400,13 @@ def test_render_flat_summary_contains_price_bias_action_and_emitted_flag():
         emitted=False,
     )
 
-    assert "strategy=Ott2butKAMA" in text
-    assert "symbol=ETHUSDT" in text
-    assert "price=2488.1" in text
-    assert "bias=flat" in text
-    assert "action=none" in text
-    assert "emitted=no" in text
+    assert text.startswith("[2026-04-05T21:03:20+08:00]")
+    assert "策略=Ott2butKAMA" in text
+    assert "交易对=ETHUSDT" in text
+    assert "当前价=2488.1" in text
+    assert "判断=flat" in text
+    assert "动作=none" in text
+    assert "已发送=否" in text
 
 
 def test_render_position_summary_contains_floating_pnl_fields():
@@ -427,13 +428,14 @@ def test_render_position_summary_contains_floating_pnl_fields():
         emitted=False,
     )
 
-    assert "side=long" in text
-    assert "qty=5.12" in text
-    assert "entry=2450.0" in text
-    assert "price=2488.1" in text
-    assert "pnl=" in text
-    assert "pnl_pct=" in text
-    assert "action=hold" in text
+    assert text.startswith("[2026-04-05T21:03:30+08:00]")
+    assert "持仓方向=多" in text
+    assert "数量=5.12" in text
+    assert "开仓价=2450.0" in text
+    assert "当前价=2488.1" in text
+    assert "浮动盈亏=" in text
+    assert "浮动收益率=" in text
+    assert "动作=hold" in text
 
 
 def test_compute_position_pnl_for_short_position():
@@ -485,6 +487,6 @@ def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, c
 
     output = capsys.readouterr().out.strip()
 
-    assert "qty=5.12" in output
-    assert "entry=2450.0" in output
-    assert "price=2488.1" in output
+    assert "数量=5.12" in output
+    assert "开仓价=2450.0" in output
+    assert "当前价=2488.1" in output
