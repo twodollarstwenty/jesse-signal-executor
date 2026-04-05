@@ -21,6 +21,7 @@ docs/backtests/raw/*.log
 # jesse runtime generated storage
 runtime/jesse_workspace/storage/json/
 runtime/jesse_workspace/storage/logs/
+runtime/jesse_workspace/strategies/
 
 # non-container dryrun runtime artifacts
 runtime/dryrun/
