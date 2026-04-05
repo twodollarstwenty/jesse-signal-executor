@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from apps.notifications.wecom import send_text_message
 from apps.shared.db import connect
 
@@ -22,9 +30,10 @@ def fetch_recent_execution_events(limit: int = 20) -> list[dict]:
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT created_at, strategy, symbol, action, decision, reason
-                FROM execution_events
-                ORDER BY created_at DESC
+                SELECT e.created_at, s.strategy, e.symbol, s.action, e.status, NULL
+                FROM execution_events e
+                JOIN signal_events s ON s.id = e.signal_id
+                ORDER BY e.created_at DESC
                 LIMIT %s
                 """,
                 (limit,),
@@ -35,7 +44,7 @@ def fetch_recent_execution_events(limit: int = 20) -> list[dict]:
 
     return [
         {
-            "created_at": row[0].isoformat(),
+            "created_at": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
             "strategy": row[1],
             "symbol": row[2],
             "action": row[3],

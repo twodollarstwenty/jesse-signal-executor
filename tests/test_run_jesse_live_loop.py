@@ -102,6 +102,7 @@ def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
     module.configure_strategy_for_signal_cycle(strategy)
 
     assert strategy.symbol == "ETH-USDT"
+    assert strategy.exchange == "Binance Perpetual Futures"
     assert strategy.timeframe == "5m"
     assert strategy.buy is None
     assert strategy.sell is None
@@ -195,6 +196,19 @@ def test_configure_strategy_for_signal_cycle_supports_read_only_property_classes
     assert strategy.cross_up is False
     assert strategy.is_long is True
     assert strategy.is_short is False
+
+
+def test_drive_strategy_cycle_works_when_runtime_properties_touch_exchange(monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    class FakeStrategy:
+        pass
+
+    strategy = FakeStrategy()
+
+    module.configure_strategy_for_signal_cycle(strategy)
+
+    assert strategy.exchange == "Binance Perpetual Futures"
 
 
 def test_configure_strategy_for_signal_cycle_does_not_eagerly_call_original_property_getters():

@@ -69,6 +69,7 @@ def build_strategy_instance():
 
 
 def configure_strategy_for_signal_cycle(strategy) -> None:
+    strategy.exchange = "Binance Perpetual Futures"
     strategy.symbol = "ETH-USDT"
     strategy.timeframe = "5m"
     strategy.buy = None
