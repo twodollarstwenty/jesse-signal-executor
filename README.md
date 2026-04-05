@@ -2,10 +2,12 @@
 
 一个独立的新项目，用于搭建 `Jesse 信号 + Executor 模拟执行` 的 Binance Perpetual Futures 自动交易闭环。
 
+当前活跃阶段路径：`backtest -> dry-run -> tiny live`
+
 ## 第一阶段目标
 
 - 使用 Jesse 作为策略信号来源
-- 使用独立 Executor 进行 dry-run / paper 模拟执行
+- 使用独立 Executor 进行 dry-run / paper 模拟执行，并为 tiny live 提供验证依据
 - 使用 PostgreSQL 记录信号、执行、仓位和状态
 - 使用 Docker Compose 作为标准运行方式
 
@@ -14,7 +16,7 @@
 - 多交易所
 - 多策略并发
 - 分批止盈
-- 真实 live 下单
+- 非 tiny-live 范围的真实资金自动交易
 - Web UI
 
 ## 目录说明

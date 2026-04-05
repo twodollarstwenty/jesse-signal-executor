@@ -5,7 +5,6 @@
 系统晋级顺序固定为：
 - backtest
 - dry-run
-- testnet
 - tiny live
 
 每一阶段都必须完成前一阶段验证后才能晋级。
@@ -17,16 +16,11 @@
 - 策略逻辑可解释
 - 关键风险已知
 
-### dry-run -> testnet
+### dry-run -> tiny live
 - 连续运行窗口达标
 - 无重复消费
-- 无仓位漂移
-- 日志完整
-
-### testnet -> tiny live
-- 真实下单链路稳定
-- 无状态错乱
-- 有停机和回滚预案
+- 无明显状态漂移
+- 日志与验证摘要完整
 - close-only / halt 已验证
 
 ## 禁止

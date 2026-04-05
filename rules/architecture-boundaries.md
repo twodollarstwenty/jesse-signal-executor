@@ -12,7 +12,7 @@
 - Signal Service 直接调用交易所 API。
 - Executor 直接嵌入策略逻辑。
 - 跨层共享隐式状态。
-- 把 dry-run、testnet、live 行为写成分散的 if/else 泥团。
+- 把 backtest、dry-run、tiny live 行为写成分散的 if/else 泥团。
 
 ## 例外
 

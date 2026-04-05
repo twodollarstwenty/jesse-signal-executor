@@ -71,6 +71,15 @@ bash scripts/dryrun_stop.sh
 - 若状态异常，再查看 `runtime/dryrun/logs/*.log` 定位启动失败、退出或连接问题。
 - 若进程存活但没有业务流量，继续检查 `signal_events` 与 `execution_events` 是否有新增记录；这是 dry-run 是否真正有效的判定标准之一。
 
+验证摘要：
+
+```bash
+source .venv/bin/activate
+python3 scripts/summarize_dryrun_validation.py --minutes 60
+```
+
+- 该摘要属于 dry-run 验证证据的一部分，也是评估是否可以考虑进入 tiny live 的必备依据之一。
+
 Smoke 验证：
 
 - 当前一次宿主机 smoke 已执行 `bash scripts/dryrun_start.sh`、`bash scripts/dryrun_status.sh`、`bash scripts/dryrun_stop.sh`，结果为启动成功、状态可见、停止成功。

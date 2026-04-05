@@ -6,6 +6,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+SUCCESSFUL_JESSE_TEST_COMMAND = "python3 -c \"from pathlib import Path; p = Path(__import__('os').environ['JESSE_HEARTBEAT_PATH']); p.parent.mkdir(parents=True, exist_ok=True); p.write_text('ok')\""
+
+
 def test_dryrun_start_script_exists():
     assert (REPO_ROOT / "scripts/dryrun_start.sh").exists()
 
@@ -47,7 +50,7 @@ def test_dryrun_start_script_replaces_mismatched_existing_pid(tmp_path):
 
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = "python3 scripts/verify_jesse_imports.py"
+    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -76,7 +79,7 @@ def test_dryrun_start_script_exports_repo_root_for_python_processes(tmp_path):
     runtime_root = tmp_path / "runtime-root"
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = "python3 scripts/verify_jesse_imports.py"
+    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -105,7 +108,7 @@ def test_dryrun_start_script_sets_local_db_defaults_only_when_unset(tmp_path):
     runtime_root = tmp_path / "runtime-root"
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
-    env["JESSE_DRYRUN_COMMAND"] = "python3 scripts/verify_jesse_imports.py"
+    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
@@ -143,7 +146,7 @@ def test_dryrun_start_script_preserves_explicit_db_env_overrides(tmp_path):
     env = os.environ.copy()
     env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
     env["POSTGRES_USER"] = "definitely-not-a-real-user"
-    env["JESSE_DRYRUN_COMMAND"] = "python3 scripts/verify_jesse_imports.py"
+    env["JESSE_DRYRUN_COMMAND"] = SUCCESSFUL_JESSE_TEST_COMMAND
 
     completed = subprocess.run(
         ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],

@@ -14,14 +14,14 @@
 
 ## 红线
 
-- 未达到阶段门槛不得进入 live
+- 未达到阶段门槛不得进入 tiny live
 - 不允许将 secrets 提交到仓库
 - 不允许绕过验证直接声明完成
 - 不允许绕过 close-only / halt 安全机制
 
 ## 阶段门槛
 
-- backtest -> dry-run -> testnet -> tiny live
+- backtest -> dry-run -> tiny live
 
 ## 必读规则
 
@@ -37,7 +37,6 @@
 - `skills/add-new-strategy/`
 - `skills/run-backtest-and-compare/`
 - `skills/run-dryrun-validation/`
-- `skills/promote-to-testnet/`
 - `skills/promote-to-live/`
 - `skills/incident-stop-and-recover/`
 - `skills/add-risk-rule/`

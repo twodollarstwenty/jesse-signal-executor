@@ -1,43 +1,25 @@
 ---
 name: promote-to-testnet
-description: Use when a dry-run validated strategy or execution path is being considered for testnet promotion.
+description: Deprecated placeholder only. Do not use; the repository no longer treats testnet as a formal promotion stage.
 ---
 
 # promote-to-testnet
 
-## 何时使用
+## 状态
 
-- dry-run 已稳定
-- 想验证真实下单链路
-- 想验证订单状态同步
+已弃用。当前仓库不再把 `testnet` 视为正式晋级阶段。
 
-## 输入
+## 现在应做什么
 
-- dry-run 验证记录
-- testnet 配置
-- 风险边界
+- dry-run 验证请使用 `skills/run-dryrun-validation/`
+- 准备进入 tiny live 请使用 `skills/promote-to-live/`
 
-## 步骤
+## 说明
 
-1. 确认 dry-run 达标。
-2. 确认 testnet API 配置正确。
-3. 启动 testnet。
-4. 检查订单生命周期。
-5. 检查仓位一致性。
-
-## 输出
-
-- testnet 验证摘要
-- 是否可进入 tiny live
-
-## 验证方式
-
-- 启动命令
-- 订单与仓位状态
-- 错误日志
+- 正式路径为 `backtest -> dry-run -> tiny live`
+- 不要把 testnet 结果当作当前仓库的必需 gate
 
 ## 常见错误
 
-- dry-run 未达标就上 testnet
-- 用主网 key 冒充 testnet
-- 只看下单成功，不看状态同步
+- 继续按过时 testnet 流程推进当前仓库变更
+- 把 testnet 当作 tiny live 之前的必经步骤
