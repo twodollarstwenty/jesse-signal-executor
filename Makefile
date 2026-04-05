@@ -32,27 +32,7 @@ dryrun-debug:
 	@echo
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 scripts/summarize_dryrun_validation.py --minutes 10
 	@echo
-	@set -a && . .env && set +a && . .venv/bin/activate && python3 - <<'PY'
-import os, psycopg2
-conn = psycopg2.connect(
-    host=os.getenv('POSTGRES_HOST', '127.0.0.1'),
-    port=int(os.getenv('POSTGRES_PORT', '5432')),
-    dbname=os.getenv('POSTGRES_DB', 'jesse_db'),
-    user=os.getenv('POSTGRES_USER', 'jesse_user'),
-    password=os.getenv('POSTGRES_PASSWORD', 'password'),
-)
-with conn, conn.cursor() as cur:
-    cur.execute("select signal_time, action, status from signal_events order by id desc limit 10")
-    print('signal_events:')
-    for row in cur.fetchall():
-        print(row)
-    print()
-    cur.execute("select created_at, status, signal_id from execution_events order by id desc limit 10")
-    print('execution_events:')
-	    for row in cur.fetchall():
-	        print(row)
-	conn.close()
-	PY
+	@set -a && . .env && set +a && . .venv/bin/activate && python3 -c "import os, psycopg2; conn = psycopg2.connect(host=os.getenv('POSTGRES_HOST', '127.0.0.1'), port=int(os.getenv('POSTGRES_PORT', '5432')), dbname=os.getenv('POSTGRES_DB', 'jesse_db'), user=os.getenv('POSTGRES_USER', 'jesse_user'), password=os.getenv('POSTGRES_PASSWORD', 'password')); cur = conn.cursor(); cur.execute('select signal_time, action, status from signal_events order by id desc limit 10'); print('signal_events:'); [print(row) for row in cur.fetchall()]; print(); cur.execute('select created_at, status, signal_id from execution_events order by id desc limit 10'); print('execution_events:'); [print(row) for row in cur.fetchall()]; cur.close(); conn.close()"
 
 dryrun-log:
 	tail -f runtime/dryrun/logs/jesse-dryrun.log
