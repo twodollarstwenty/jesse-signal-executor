@@ -15,6 +15,25 @@ def build_execution_payload(*, signal_id: int, symbol: str, status: str) -> dict
     }
 
 
+def build_position_payload(*, symbol: str, side: str, signal_payload: dict) -> dict:
+    if side == "flat":
+        return {
+            "symbol": symbol,
+            "side": "flat",
+            "qty": 0.0,
+            "entry_price": 0.0,
+            "state_json": {},
+        }
+
+    return {
+        "symbol": symbol,
+        "side": side,
+        "qty": float(signal_payload.get("qty", 1.0)),
+        "entry_price": float(signal_payload.get("price", 0.0)),
+        "state_json": {},
+    }
+
+
 def fetch_current_side(*, cur, symbol: str) -> str | None:
     cur.execute(
         """
@@ -30,13 +49,19 @@ def fetch_current_side(*, cur, symbol: str) -> str | None:
     return None if row is None else row[0]
 
 
-def upsert_position_side(*, cur, symbol: str, side: str) -> None:
+def upsert_position_side(*, cur, position_payload: dict) -> None:
     cur.execute(
         """
         INSERT INTO position_state (symbol, side, qty, entry_price, state_json)
         VALUES (%s, %s, %s, %s, %s::jsonb)
         """,
-        (symbol, side, 0, 0, "{}"),
+        (
+            position_payload["symbol"],
+            position_payload["side"],
+            position_payload["qty"],
+            position_payload["entry_price"],
+            json.dumps(position_payload["state_json"]),
+        ),
     )
 
 
@@ -47,7 +72,7 @@ def run_once() -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, symbol, action
+                    SELECT id, symbol, action, payload_json
                     FROM signal_events
                     WHERE status = 'new'
                     ORDER BY id ASC
@@ -59,7 +84,7 @@ def run_once() -> None:
                 if row is None:
                     return
 
-                signal_id, symbol, action = row
+                signal_id, symbol, action, signal_payload = row
 
                 cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (symbol,))
 
@@ -68,7 +93,8 @@ def run_once() -> None:
                 decision, next_state = decide_transition(current_side=current_side, signal_action=action)
 
                 if decision == "execute" and next_state != normalized_current_side:
-                    upsert_position_side(cur=cur, symbol=symbol, side=next_state)
+                    position_payload = build_position_payload(symbol=symbol, side=next_state, signal_payload=signal_payload or {})
+                    upsert_position_side(cur=cur, position_payload=position_payload)
 
                 cur.execute(
                     "UPDATE signal_events SET status = %s, updated_at = NOW() WHERE id = %s AND status = 'new'",

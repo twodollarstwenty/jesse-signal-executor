@@ -465,3 +465,26 @@ def test_build_loop_state_from_market_snapshot_uses_market_price():
     assert state["price"] == 2516.8
     assert state["timestamp"] == "2026-04-05T21:33:20+08:00"
     assert state["action"] in {"open_long", "open_short", "close_long", "close_short", "none"}
+
+
+def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, capsys):
+    import scripts.run_jesse_live_loop as module
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:30+08:00",
+        "price": 2488.1,
+        "bias": "long",
+        "action": "hold",
+        "emitted": False,
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2508.2},
+    }
+
+    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: {"side": "long", "qty": 5.12, "entry_price": 2450.0})
+
+    module.print_cycle_summary(loop_state)
+
+    output = capsys.readouterr().out.strip()
+
+    assert "qty=5.12" in output
+    assert "entry=2450.0" in output
+    assert "price=2488.1" in output

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from scripts.fetch_binance_market_snapshot import fetch_ticker_price
+from apps.shared.db import connect
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
@@ -38,6 +39,9 @@ def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float
     qty = float(position["qty"])
     entry_price = float(position["entry_price"])
 
+    if entry_price <= 0:
+        return 0.0, 0.0
+
     if side == "short":
         pnl = (entry_price - current_price) * qty
         pnl_pct = ((entry_price - current_price) / entry_price) * 100
@@ -59,6 +63,33 @@ def render_position_summary(*, timestamp: str, strategy: str, symbol: str, curre
         f"entry={position['entry_price']} price={current_price} pnl={pnl:+.2f} pnl_pct={pnl_pct:+.2f}% "
         f"action={action} emitted={'yes' if emitted else 'no'}"
     )
+
+
+def fetch_persistent_position(*, symbol: str) -> dict | None:
+    conn = connect()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT side, qty, entry_price
+                FROM position_state
+                WHERE symbol = %s
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """,
+                (symbol,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        return None
+
+    side, qty, entry_price = row
+    if side == "flat":
+        return None
+    return {"side": side, "qty": float(qty), "entry_price": float(entry_price)}
 
 
 def build_loop_state(now: datetime | None = None) -> dict:
@@ -277,8 +308,9 @@ def emit_strategy_signals(loop_state: dict | None = None) -> dict:
 
 def print_cycle_summary(loop_state: dict) -> None:
     symbol = SYMBOL.replace("-", "")
+    persistent_position = fetch_persistent_position(symbol=symbol)
 
-    if loop_state["position"] is None:
+    if persistent_position is None:
         print(
             render_flat_summary(
                 timestamp=loop_state["timestamp"],
@@ -298,7 +330,7 @@ def print_cycle_summary(loop_state: dict) -> None:
             strategy=STRATEGY_NAME,
             symbol=symbol,
             current_price=loop_state["price"],
-            position=loop_state["position"],
+            position=persistent_position,
             action=loop_state["action"],
             emitted=loop_state["emitted"],
         )
