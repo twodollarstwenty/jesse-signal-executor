@@ -521,6 +521,23 @@ def test_build_loop_state_from_market_snapshot_uses_market_price():
     assert state["action"] in {"open_long", "open_short", "close_long", "close_short", "none"}
 
 
+def test_run_cycle_does_not_emit_signal_when_market_snapshot_fetch_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_ticker_price", lambda symbol: (_ for _ in ()).throw(RuntimeError("fetch failed")))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit when market fetch fails")))
+
+    module.run_cycle()
+
+    output = capsys.readouterr().out.strip()
+    assert "行情获取失败" in output
+
+
 def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, capsys):
     import scripts.run_jesse_live_loop as module
 

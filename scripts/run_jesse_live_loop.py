@@ -375,7 +375,19 @@ def run_cycle() -> None:
         snapshot["candle_timestamp"] = int(current_time.timestamp() * 1000)
         loop_state = build_loop_state_from_market_snapshot(snapshot)
     except Exception:
-        loop_state = build_loop_state(now=current_time)
+        loop_state = {
+            "timestamp": current_time.isoformat(),
+            "price": 0.0,
+            "candle_timestamp": int(current_time.timestamp() * 1000),
+            "bias": "flat",
+            "position": None,
+            "action": "none",
+            "last_action": "none",
+            "emitted": False,
+        }
+        print(f"[{datetime.fromisoformat(loop_state['timestamp']).astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
+        print_cycle_summary(loop_state)
+        return
     ACTIVE_LOOP_STATE = loop_state
     with workspace_cwd(workspace):
         emitted_loop_state = emit_strategy_signals()
