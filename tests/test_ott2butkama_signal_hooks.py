@@ -63,3 +63,11 @@ def test_risk_managed25_variant_contains_same_signal_actions():
     assert "open_short" in text
     assert "close_long" in text
     assert "close_short" in text
+
+
+def test_risk_managed25_grid_variant_contains_same_signal_actions():
+    text = Path("strategies/jesse/Ott2butKAMA_RiskManaged25_Grid/__init__.py").read_text()
+    assert "open_long" in text
+    assert "open_short" in text
+    assert "close_long" in text
+    assert "close_short" in text
