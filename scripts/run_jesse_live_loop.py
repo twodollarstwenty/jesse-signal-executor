@@ -5,7 +5,7 @@ from importlib import import_module
 from contextlib import contextmanager
 from pathlib import Path
 
-from scripts.fetch_binance_market_snapshot import fetch_ticker_price
+from scripts.fetch_binance_kline_snapshot import fetch_recent_klines
 from apps.shared.db import connect
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 from scripts.build_current_position_panel import compute_position_qty
@@ -180,6 +180,42 @@ def build_loop_state_from_market_snapshot(snapshot: dict) -> dict:
         "timestamp": snapshot["timestamp"],
         "price": price,
         "candle_timestamp": int(snapshot.get("candle_timestamp", 0)),
+        "bias": bias,
+        "position": position,
+        "action": action,
+        "last_action": action,
+    }
+
+
+def build_loop_state_from_candles(snapshot: dict) -> dict:
+    close_prices = snapshot["close_prices"]
+    price = close_prices[-1]
+
+    if len(close_prices) < 3:
+        action = "none"
+        bias = "flat"
+        position = None
+    else:
+        prev_price = close_prices[-2]
+        prev_prev_price = close_prices[-3]
+        position = None
+
+        if price > prev_price > prev_prev_price:
+            action = "open_long"
+            bias = "long"
+            position = {"side": "long", "qty": 1.0, "entry_price": price}
+        elif price < prev_price < prev_prev_price:
+            action = "open_short"
+            bias = "short"
+            position = {"side": "short", "qty": 1.0, "entry_price": price}
+        else:
+            action = "none"
+            bias = "flat"
+
+    return {
+        "timestamp": snapshot["timestamp"],
+        "price": price,
+        "candle_timestamp": snapshot["latest_timestamp"],
         "bias": bias,
         "position": position,
         "action": action,
@@ -377,23 +413,11 @@ def run_cycle() -> None:
     prepare_import_path(workspace)
     current_time = datetime.now(timezone.utc)
     try:
-        snapshot = fetch_ticker_price(symbol=SYMBOL.replace("-", ""))
+        snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
         snapshot["timestamp"] = current_time.isoformat()
-        snapshot["candle_timestamp"] = int(current_time.timestamp() * 1000)
-        loop_state = build_loop_state_from_market_snapshot(snapshot)
+        loop_state = build_loop_state_from_candles(snapshot)
     except Exception:
-        loop_state = {
-            "timestamp": current_time.isoformat(),
-            "price": 0.0,
-            "candle_timestamp": int(current_time.timestamp() * 1000),
-            "bias": "flat",
-            "position": None,
-            "action": "none",
-            "last_action": "none",
-            "emitted": False,
-        }
-        print(f"[{datetime.fromisoformat(loop_state['timestamp']).astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
-        print_cycle_summary(loop_state)
+        print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
         return
     ACTIVE_LOOP_STATE = loop_state
     with workspace_cwd(workspace):

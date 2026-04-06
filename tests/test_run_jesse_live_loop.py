@@ -31,6 +31,15 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
     workspace.mkdir(parents=True)
 
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(
+        module,
+        "fetch_recent_klines",
+        lambda symbol, interval="5m", limit=50: {
+            "symbol": symbol,
+            "close_prices": [2505.0, 2516.8, 2524.1],
+            "latest_timestamp": 1712189100000,
+        },
+    )
     monkeypatch.setattr(module, "emit_strategy_signals", lambda: calls.append(f"emit:{Path.cwd()}"))
 
     original_cwd = Path.cwd()
@@ -409,6 +418,23 @@ def test_render_flat_summary_contains_price_bias_action_and_emitted_flag():
     assert "已发送=否" in text
 
 
+def test_build_loop_state_from_candles_uses_recent_close_prices():
+    from scripts.run_jesse_live_loop import build_loop_state_from_candles
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    state = build_loop_state_from_candles(snapshot)
+
+    assert state["price"] == 2524.1
+    assert state["timestamp"] == "2026-04-05T21:33:20+08:00"
+    assert state["action"] in {"open_long", "open_short", "close_long", "close_short", "none"}
+
+
 def test_render_position_summary_contains_floating_pnl_fields():
     from scripts.run_jesse_live_loop import render_position_summary
 
@@ -531,13 +557,15 @@ def test_run_cycle_does_not_emit_signal_when_market_snapshot_fetch_fails(tmp_pat
 
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
-    monkeypatch.setattr(module, "fetch_ticker_price", lambda symbol: (_ for _ in ()).throw(RuntimeError("fetch failed")))
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: (_ for _ in ()).throw(RuntimeError("fetch failed")))
     monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit when market fetch fails")))
 
     module.run_cycle()
 
     output = capsys.readouterr().out.strip()
     assert "行情获取失败" in output
+    assert "持仓方向=" not in output
+    assert "当前价=0.0" not in output
 
 
 def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, capsys):
