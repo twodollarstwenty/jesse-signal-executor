@@ -40,7 +40,7 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
             "latest_timestamp": 1712189100000,
         },
     )
-    monkeypatch.setattr(module, "emit_strategy_signals", lambda: calls.append(f"emit:{Path.cwd()}"))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: calls.append(f"emit:{Path.cwd()}"))
 
     original_cwd = Path.cwd()
 
@@ -48,6 +48,67 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
 
     assert calls == [f"emit:{workspace}"]
     assert Path.cwd() == original_cwd
+
+
+def test_run_cycle_skips_action_when_latest_candle_is_already_processed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "emit_strategy_signals",
+        lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for the same candle twice")),
+    )
+    module.LAST_PROCESSED_CANDLE_TS = 1712189100000
+
+    module.run_cycle()
+
+    output = capsys.readouterr().out.strip()
+    assert "等待新 5m K 线" in output
+
+
+def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    calls = []
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "emit_strategy_signals",
+        lambda loop_state=None: calls.append(loop_state) or {**loop_state, "emitted": True},
+    )
+    module.LAST_PROCESSED_CANDLE_TS = 1712188800000
+
+    module.run_cycle()
+
+    assert len(calls) == 1
+    assert module.LAST_PROCESSED_CANDLE_TS == 1712189100000
 
 
 def test_prepare_import_path_prioritizes_runtime_workspace_without_changing_cwd(

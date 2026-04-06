@@ -1,4 +1,4 @@
-.PHONY: test status init-db dryrun-up dryrun-down dryrun-watch dryrun-debug dryrun-log dryrun-panel dryrun-history
+.PHONY: test status init-db dryrun-up dryrun-down dryrun-watch dryrun-debug dryrun-log dryrun-panel dryrun-history dryrun-reset dryrun-reset-up
 
 test:
 	. .venv/bin/activate && python3 -m pytest tests -q
@@ -42,3 +42,17 @@ dryrun-panel:
 
 dryrun-history:
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 scripts/build_trade_history_panel.py
+
+dryrun-reset:
+	@pkill -f "scripts/run_executor_loop.py" || true
+	@pkill -f "scripts/run_jesse_dryrun_loop.py" || true
+	@rm -f runtime/dryrun/pids/executor.pid runtime/dryrun/pids/jesse-dryrun.pid runtime/dryrun/last_action.txt
+	@set -a && . .env && set +a && . .venv/bin/activate && python3 -c "import os, psycopg2; conn = psycopg2.connect(host=os.getenv('POSTGRES_HOST','127.0.0.1'), port=int(os.getenv('POSTGRES_PORT','5432')), dbname=os.getenv('POSTGRES_DB','jesse_db'), user=os.getenv('POSTGRES_USER','jesse_user'), password=os.getenv('POSTGRES_PASSWORD','password')); cur = conn.cursor(); cur.execute('DELETE FROM execution_events'); cur.execute('DELETE FROM signal_events'); cur.execute('DELETE FROM position_state'); conn.commit(); cur.close(); conn.close(); print('已清空 signal_events / execution_events / position_state')"
+	@: > runtime/dryrun/logs/jesse-dryrun.log
+	@: > runtime/dryrun/logs/executor.log
+	@echo "已清空 dry-run 日志和状态文件"
+	@bash scripts/dryrun_status.sh
+
+dryrun-reset-up:
+	@$(MAKE) dryrun-reset
+	@$(MAKE) dryrun-up

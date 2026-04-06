@@ -16,6 +16,7 @@ SYMBOL = "ETH-USDT"
 TIMEFRAME = "5m"
 ACTIVE_LOOP_STATE: dict | None = None
 LAST_EMITTED_ACTION: str | None = None
+LAST_PROCESSED_CANDLE_TS: int | None = None
 CST = timezone(timedelta(hours=8))
 
 
@@ -407,7 +408,7 @@ def print_cycle_summary(loop_state: dict) -> None:
 
 
 def run_cycle() -> None:
-    global ACTIVE_LOOP_STATE
+    global ACTIVE_LOOP_STATE, LAST_PROCESSED_CANDLE_TS
 
     workspace = ensure_runtime_ready()
     prepare_import_path(workspace)
@@ -415,14 +416,19 @@ def run_cycle() -> None:
     try:
         snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
         snapshot["timestamp"] = current_time.isoformat()
+        latest_candle_ts = int(snapshot["latest_timestamp"])
+        if LAST_PROCESSED_CANDLE_TS == latest_candle_ts:
+            print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
+            return
         loop_state = build_loop_state_from_candles(snapshot)
     except Exception:
         print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
         return
     ACTIVE_LOOP_STATE = loop_state
     with workspace_cwd(workspace):
-        emitted_loop_state = emit_strategy_signals()
+        emitted_loop_state = emit_strategy_signals(loop_state)
     ACTIVE_LOOP_STATE = None
+    LAST_PROCESSED_CANDLE_TS = latest_candle_ts
     if isinstance(emitted_loop_state, dict):
         loop_state = emitted_loop_state
     else:
