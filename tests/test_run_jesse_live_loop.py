@@ -41,6 +41,7 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
         },
     )
     monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: calls.append(f"emit:{Path.cwd()}"))
+    module.LAST_PROCESSED_CANDLE_TS = 1712188800000
 
     original_cwd = Path.cwd()
 
@@ -95,6 +96,7 @@ def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkey
     }
 
     calls = []
+    state_file = tmp_path / "last_candle_ts.txt"
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
@@ -104,11 +106,69 @@ def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkey
         lambda loop_state=None: calls.append(loop_state) or {**loop_state, "emitted": True},
     )
     module.LAST_PROCESSED_CANDLE_TS = 1712188800000
+    monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
 
     module.run_cycle()
 
     assert len(calls) == 1
     assert module.LAST_PROCESSED_CANDLE_TS == 1712189100000
+
+
+def test_run_cycle_initializes_baseline_candle_without_emitting_on_first_observation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit on first observation")))
+    module.LAST_PROCESSED_CANDLE_TS = None
+    state_file = tmp_path / "last_candle_ts.txt"
+    monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
+
+    module.run_cycle()
+
+    output = capsys.readouterr().out.strip()
+    assert "初始化 5m 基线K线，不发单" in output
+    assert module.LAST_PROCESSED_CANDLE_TS == 1712189100000
+    assert state_file.read_text().strip() == "1712189100000"
+
+
+def test_run_cycle_reads_last_processed_candle_from_state_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+    state_file = tmp_path / "last_candle_ts.txt"
+    state_file.write_text("1712189100000")
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for already-processed candle")))
+    module.LAST_PROCESSED_CANDLE_TS = None
+    monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
+
+    module.run_cycle()
+
+    output = capsys.readouterr().out.strip()
+    assert "等待新 5m K 线" in output
 
 
 def test_prepare_import_path_prioritizes_runtime_workspace_without_changing_cwd(

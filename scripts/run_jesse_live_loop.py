@@ -24,6 +24,24 @@ def get_last_action_file() -> Path:
     return Path(os.getenv("JESSE_LAST_ACTION_FILE", str(ROOT / "runtime" / "dryrun" / "last_action.txt")))
 
 
+def get_last_candle_file() -> Path:
+    return Path(os.getenv("JESSE_LAST_CANDLE_FILE", str(ROOT / "runtime" / "dryrun" / "last_candle_ts.txt")))
+
+
+def read_last_processed_candle_ts() -> int | None:
+    path = get_last_candle_file()
+    if not path.exists():
+        return None
+    text = path.read_text().strip()
+    return int(text) if text else None
+
+
+def write_last_processed_candle_ts(value: int) -> None:
+    path = get_last_candle_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(value))
+
+
 def read_last_emitted_action() -> str | None:
     path = get_last_action_file()
     if not path.exists():
@@ -417,6 +435,14 @@ def run_cycle() -> None:
         snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
         snapshot["timestamp"] = current_time.isoformat()
         latest_candle_ts = int(snapshot["latest_timestamp"])
+        remembered_candle_ts = read_last_processed_candle_ts()
+        if remembered_candle_ts is not None:
+            LAST_PROCESSED_CANDLE_TS = remembered_candle_ts
+        if LAST_PROCESSED_CANDLE_TS is None:
+            LAST_PROCESSED_CANDLE_TS = latest_candle_ts
+            write_last_processed_candle_ts(latest_candle_ts)
+            print(f"[{current_time.astimezone(CST).isoformat()}] 初始化 5m 基线K线，不发单")
+            return
         if LAST_PROCESSED_CANDLE_TS == latest_candle_ts:
             print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
             return
@@ -429,6 +455,7 @@ def run_cycle() -> None:
         emitted_loop_state = emit_strategy_signals(loop_state)
     ACTIVE_LOOP_STATE = None
     LAST_PROCESSED_CANDLE_TS = latest_candle_ts
+    write_last_processed_candle_ts(latest_candle_ts)
     if isinstance(emitted_loop_state, dict):
         loop_state = emitted_loop_state
     else:
