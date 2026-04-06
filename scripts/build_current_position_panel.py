@@ -15,6 +15,14 @@ from scripts.summarize_dryrun_account import (
 )
 
 
+def compute_position_qty(*, initial_capital: float, leverage: float, position_fraction: float, current_price: float) -> float:
+    if current_price <= 0:
+        return 0.0
+    max_notional = initial_capital * leverage
+    effective_notional = max_notional * position_fraction
+    return round(effective_notional / current_price, 5)
+
+
 def compute_notional_usdt(*, qty: float, mark_price: float) -> float:
     return round(qty * mark_price, 2)
 
@@ -52,7 +60,13 @@ def build_current_position_panel(*, initial_capital: float = 1000.0, leverage: f
         return None
 
     mark_price = fetch_current_price(symbol=symbol)
-    notional_usdt = compute_notional_usdt(qty=position["qty"], mark_price=mark_price)
+    display_qty = compute_position_qty(
+        initial_capital=initial_capital,
+        leverage=leverage,
+        position_fraction=0.2,
+        current_price=mark_price,
+    )
+    notional_usdt = compute_notional_usdt(qty=display_qty, mark_price=mark_price)
     margin = compute_margin_estimate(notional_usdt=notional_usdt, leverage=leverage)
     realized_pnl = compute_realized_pnl()
     unrealized_pnl = compute_unrealized_pnl(position=position, current_price=mark_price)
@@ -66,7 +80,7 @@ def build_current_position_panel(*, initial_capital: float = 1000.0, leverage: f
 
     return {
         "symbol": f"{symbol} 永续",
-        "qty": position["qty"],
+        "qty": display_qty,
         "notional_usdt": notional_usdt,
         "margin": margin,
         "margin_ratio": margin_ratio,

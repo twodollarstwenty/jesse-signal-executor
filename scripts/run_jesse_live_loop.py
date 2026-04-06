@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts.fetch_binance_market_snapshot import fetch_ticker_price
 from apps.shared.db import connect
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
+from scripts.build_current_position_panel import compute_position_qty
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
@@ -67,9 +68,15 @@ def render_position_summary(*, timestamp: str, strategy: str, symbol: str, curre
     pnl, pnl_pct = compute_position_pnl(position=position, current_price=current_price)
     local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
     side_label = "多" if position["side"] == "long" else "空"
-    notional_usdt = round(float(position["qty"]) * current_price, 2)
+    display_qty = compute_position_qty(
+        initial_capital=initial_capital,
+        leverage=10.0,
+        position_fraction=0.2,
+        current_price=current_price,
+    )
+    notional_usdt = round(display_qty * current_price, 2)
     return (
-        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 持仓数量(ETH)={position['qty']} 持仓名义金额(USDT)={notional_usdt:.2f} "
+        f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 持仓数量(ETH)={display_qty} 持仓名义金额(USDT)={notional_usdt:.2f} "
         f"开仓价={position['entry_price']} 当前价={current_price} 已实现盈亏={realized_pnl:+.2f} 未实现盈亏={unrealized_pnl:+.2f} 当前权益={current_equity:.2f} "
         f"浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% 动作={action} 已发送={'是' if emitted else '否'}"
     )

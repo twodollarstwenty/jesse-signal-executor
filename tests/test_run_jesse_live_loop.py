@@ -430,9 +430,10 @@ def test_render_position_summary_contains_floating_pnl_fields():
 
     assert text.startswith("[2026-04-05T21:03:30+08:00]")
     assert "持仓方向=多" in text
-    assert "持仓数量(ETH)=5.12" in text
+    assert "持仓数量(ETH)=0.80383" in text
     assert "开仓价=2450.0" in text
     assert "当前价=2488.1" in text
+    assert "持仓名义金额(USDT)=2000.01" in text
     assert "浮动盈亏=" in text
     assert "浮动收益率=" in text
     assert "动作=hold" in text
@@ -484,7 +485,8 @@ def test_render_position_summary_contains_account_and_notional_fields():
         current_equity=1035.14,
     )
 
-    assert "持仓名义金额(USDT)=2057.99" in text
+    assert "持仓数量(ETH)=0.97182" in text
+    assert "持仓名义金额(USDT)=2000.00" in text
     assert "已实现盈亏=+35.20" in text
     assert "未实现盈亏=-0.06" in text
     assert "当前权益=1035.14" in text
@@ -556,6 +558,7 @@ def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, c
 
     output = capsys.readouterr().out.strip()
 
-    assert "持仓数量(ETH)=5.12" in output
+    assert "持仓数量(ETH)=0.80383" in output
+    assert "持仓名义金额(USDT)=2000.01" in output
     assert "开仓价=2450.0" in output
     assert "当前价=2488.1" in output

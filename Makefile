@@ -1,4 +1,4 @@
-.PHONY: test status init-db dryrun-up dryrun-down dryrun-watch dryrun-debug dryrun-log dryrun-panel
+.PHONY: test status init-db dryrun-up dryrun-down dryrun-watch dryrun-debug dryrun-log dryrun-panel dryrun-history
 
 test:
 	. .venv/bin/activate && python3 -m pytest tests -q
@@ -39,3 +39,6 @@ dryrun-log:
 
 dryrun-panel:
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 scripts/build_current_position_panel.py
+
+dryrun-history:
+	@set -a && . .env && set +a && . .venv/bin/activate && python3 scripts/build_trade_history_panel.py
