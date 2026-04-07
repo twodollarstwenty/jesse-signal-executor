@@ -9,6 +9,8 @@ from scripts.fetch_binance_kline_snapshot import fetch_recent_klines
 from apps.shared.db import connect
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 from scripts.build_current_position_panel import compute_position_qty
+from apps.signal_service.jesse_bridge.emitter import emit_signal
+from strategies.shared.ott2butkama_core import evaluate_direction
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
@@ -74,16 +76,16 @@ def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float
     return round(pnl, 2), round(pnl_pct, 2)
 
 
-def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0) -> str:
+def render_flat_summary(*, timestamp: str, strategy: str, symbol: str, price: float, bias: str, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0, latest_execution_result: str = "none") -> str:
     local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
     return (
         f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 当前价={price} 初始资金={initial_capital:.2f} "
         f"已实现盈亏={realized_pnl:+.2f} 未实现盈亏={unrealized_pnl:+.2f} 当前权益={current_equity:.2f} "
-        f"持仓=空仓 判断={bias} 动作={action} 已发送={'是' if emitted else '否'}"
+        f"持仓=空仓 判断={bias} 动作={action} 已发送={'是' if emitted else '否'} 最近执行结果={latest_execution_result}"
     )
 
 
-def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0) -> str:
+def render_position_summary(*, timestamp: str, strategy: str, symbol: str, current_price: float, position: dict, action: str, emitted: bool, initial_capital: float = 1000.0, realized_pnl: float = 0.0, unrealized_pnl: float = 0.0, current_equity: float = 1000.0, latest_execution_result: str = "none") -> str:
     pnl, pnl_pct = compute_position_pnl(position=position, current_price=current_price)
     local_timestamp = datetime.fromisoformat(timestamp).astimezone(CST).isoformat()
     side_label = "多" if position["side"] == "long" else "空"
@@ -97,7 +99,7 @@ def render_position_summary(*, timestamp: str, strategy: str, symbol: str, curre
     return (
         f"[{local_timestamp}] 策略={strategy} 交易对={symbol} 持仓方向={side_label} 持仓数量(ETH)={display_qty} 持仓名义金额(USDT)={notional_usdt:.2f} "
         f"开仓价={position['entry_price']} 当前价={current_price} 已实现盈亏={realized_pnl:+.2f} 未实现盈亏={unrealized_pnl:+.2f} 当前权益={current_equity:.2f} "
-        f"浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% 动作={action} 已发送={'是' if emitted else '否'}"
+        f"浮动盈亏={pnl:+.2f} 浮动收益率={pnl_pct:+.2f}% 动作={action} 已发送={'是' if emitted else '否'} 最近执行结果={latest_execution_result}"
     )
 
 
@@ -211,25 +213,26 @@ def build_loop_state_from_candles(snapshot: dict) -> dict:
     price = close_prices[-1]
 
     if len(close_prices) < 3:
-        action = "none"
+        intent = "flat"
         bias = "flat"
         position = None
     else:
         prev_price = close_prices[-2]
         prev_prev_price = close_prices[-3]
-        position = None
-
-        if price > prev_price > prev_prev_price:
-            action = "open_long"
-            bias = "long"
-            position = {"side": "long", "qty": 1.0, "entry_price": price}
-        elif price < prev_price < prev_prev_price:
-            action = "open_short"
-            bias = "short"
-            position = {"side": "short", "qty": 1.0, "entry_price": price}
-        else:
-            action = "none"
-            bias = "flat"
+        cross_up = price > prev_price > prev_prev_price
+        cross_down = price < prev_price < prev_prev_price
+        chop_value = float(price)
+        chop_upper_band = float(prev_price)
+        chop_lower_band = float(prev_price)
+        intent = evaluate_direction(
+            cross_up=cross_up,
+            cross_down=cross_down,
+            chop_value=chop_value,
+            chop_upper_band=chop_upper_band,
+            chop_lower_band=chop_lower_band,
+        )
+        bias = intent
+        position = None if intent == "flat" else {"side": intent, "qty": 1.0, "entry_price": price}
 
     return {
         "timestamp": snapshot["timestamp"],
@@ -237,9 +240,22 @@ def build_loop_state_from_candles(snapshot: dict) -> dict:
         "candle_timestamp": snapshot["latest_timestamp"],
         "bias": bias,
         "position": position,
-        "action": action,
-        "last_action": action,
+        "intent": intent,
+        "action": "none",
+        "last_action": "none",
     }
+
+
+def normalize_intent_to_action(*, intent: str, position: dict | None) -> str:
+    if position is None:
+        return {"long": "open_long", "short": "open_short", "flat": "none"}.get(intent, "none")
+
+    side = position["side"]
+    if side == "long":
+        return {"long": "none", "short": "close_long", "flat": "close_long"}.get(intent, "none")
+    if side == "short":
+        return {"short": "none", "long": "close_short", "flat": "close_short"}.get(intent, "none")
+    return {"long": "open_long", "short": "open_short", "flat": "none"}.get(intent, "none")
 
 
 def build_default_loop_state() -> dict:
@@ -317,7 +333,8 @@ def build_strategy_instance():
 def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None) -> None:
     loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
     price = loop_state["price"]
-    side = loop_state["position"]["side"] if loop_state["position"] else None
+    current_position = loop_state.get("current_position")
+    side = current_position["side"] if current_position else None
 
     strategy.exchange = "Binance Perpetual Futures"
     strategy.symbol = SYMBOL
@@ -345,8 +362,25 @@ def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
     elif action == "open_short":
         strategy.go_short()
         emitted = True
-    elif action in {"close_long", "close_short"}:
-        strategy.update_position()
+    elif action == "close_long":
+        emit_signal(
+            strategy=STRATEGY_NAME,
+            symbol=SYMBOL.replace("-", ""),
+            timeframe=TIMEFRAME,
+            candle_timestamp=int(loop_state["candle_timestamp"]),
+            action="close_long",
+            payload={"source": "jesse", "price": float(loop_state["price"]), "position_side": "long", "qty": 1.0},
+        )
+        emitted = True
+    elif action == "close_short":
+        emit_signal(
+            strategy=STRATEGY_NAME,
+            symbol=SYMBOL.replace("-", ""),
+            timeframe=TIMEFRAME,
+            candle_timestamp=int(loop_state["candle_timestamp"]),
+            action="close_short",
+            payload={"source": "jesse", "price": float(loop_state["price"]), "position_side": "short", "qty": 1.0},
+        )
         emitted = True
 
     return emitted
@@ -362,8 +396,14 @@ def emit_strategy_signals(loop_state: dict | None = None) -> dict:
 
     action = loop_state.get("action", "none")
     remembered_action = read_last_emitted_action() or LAST_EMITTED_ACTION
+    persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
     if action == "none":
         emitted = False
+    elif action in {"close_long", "close_short"} and persistent_position is not None:
+        emitted = drive_strategy_cycle(strategy, loop_state)
+        if emitted:
+            LAST_EMITTED_ACTION = action
+            write_last_emitted_action(action)
     elif action == remembered_action:
         emitted = False
     else:
@@ -447,6 +487,11 @@ def run_cycle() -> None:
             print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
             return
         loop_state = build_loop_state_from_candles(snapshot)
+        persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
+        normalized_action = normalize_intent_to_action(intent=loop_state["intent"], position=persistent_position)
+        loop_state["current_position"] = persistent_position
+        loop_state["action"] = normalized_action
+        loop_state["last_action"] = normalized_action
     except Exception:
         print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
         return

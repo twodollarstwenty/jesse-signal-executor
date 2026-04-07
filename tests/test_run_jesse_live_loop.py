@@ -42,6 +42,7 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
     )
     monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: calls.append(f"emit:{Path.cwd()}"))
     module.LAST_PROCESSED_CANDLE_TS = 1712188800000
+    monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(tmp_path / "last_candle_ts.txt"))
 
     original_cwd = Path.cwd()
 
@@ -75,6 +76,9 @@ def test_run_cycle_skips_action_when_latest_candle_is_already_processed(
         lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for the same candle twice")),
     )
     module.LAST_PROCESSED_CANDLE_TS = 1712189100000
+    state_file = tmp_path / "last_candle_ts.txt"
+    state_file.write_text("1712189100000")
+    monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
 
     module.run_cycle()
 
@@ -169,6 +173,125 @@ def test_run_cycle_reads_last_processed_candle_from_state_file(tmp_path: Path, m
 
     output = capsys.readouterr().out.strip()
     assert "等待新 5m K 线" in output
+
+
+def test_normalize_action_converts_long_intent_to_close_short_when_short_position_exists():
+    from scripts.run_jesse_live_loop import normalize_intent_to_action
+
+    position = {"side": "short", "qty": 1.0, "entry_price": 2130.0}
+
+    action = normalize_intent_to_action(intent="long", position=position)
+
+    assert action == "close_short"
+
+
+def test_normalize_action_converts_short_intent_to_close_long_when_long_position_exists():
+    from scripts.run_jesse_live_loop import normalize_intent_to_action
+
+    position = {"side": "long", "qty": 1.0, "entry_price": 2130.0}
+
+    action = normalize_intent_to_action(intent="short", position=position)
+
+    assert action == "close_long"
+
+
+def test_normalize_action_returns_none_for_same_side_intent():
+    from scripts.run_jesse_live_loop import normalize_intent_to_action
+
+    position = {"side": "short", "qty": 1.0, "entry_price": 2130.0}
+
+    action = normalize_intent_to_action(intent="short", position=position)
+
+    assert action == "none"
+
+
+def test_candle_driven_loop_state_normalization_keeps_short_position_from_reopening_short(monkeypatch):
+    import scripts.run_jesse_live_loop as module
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2145.0, 2143.0, 2141.0],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    loop_state = module.build_loop_state_from_candles(snapshot)
+    position = {"side": "short", "qty": 1.0, "entry_price": 2141.0}
+
+    action = module.normalize_intent_to_action(intent=loop_state["intent"], position=position)
+
+    assert loop_state["intent"] == "short"
+    assert action == "none"
+
+
+def test_build_loop_state_from_candles_uses_shared_evaluator_result_for_intent(monkeypatch):
+    import scripts.run_jesse_live_loop as module
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2145.0, 2143.0, 2141.0],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+    calls = []
+
+    def fake_evaluate_direction(**kwargs):
+        calls.append(kwargs)
+        return "flat"
+
+    monkeypatch.setattr(module, "evaluate_direction", fake_evaluate_direction)
+
+    loop_state = module.build_loop_state_from_candles(snapshot)
+
+    assert calls == [
+        {
+            "cross_up": False,
+            "cross_down": True,
+            "chop_value": 2141.0,
+            "chop_upper_band": 2143.0,
+            "chop_lower_band": 2143.0,
+        }
+    ]
+    assert loop_state["intent"] == "flat"
+    assert loop_state["bias"] == "flat"
+    assert loop_state["position"] is None
+
+
+def test_candle_driven_loop_state_normalization_converts_short_intent_against_long_position_to_close_long(monkeypatch):
+    import scripts.run_jesse_live_loop as module
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2145.0, 2143.0, 2141.0],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    loop_state = module.build_loop_state_from_candles(snapshot)
+    position = {"side": "long", "qty": 1.0, "entry_price": 2141.0}
+
+    action = module.normalize_intent_to_action(intent=loop_state["intent"], position=position)
+
+    assert loop_state["intent"] == "short"
+    assert action == "close_long"
+
+
+def test_configure_strategy_for_signal_cycle_uses_current_position_not_intent_position():
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    loop_state = {
+        "price": 2141.0,
+        "candle_timestamp": 1712189100000,
+        "action": "close_long",
+        "position": {"side": "short", "qty": 1.0, "entry_price": 2141.0},
+        "current_position": {"side": "long", "qty": 1.0, "entry_price": 2166.33},
+    }
+
+    module.configure_strategy_for_signal_cycle(strategy, loop_state)
+
+    assert strategy.is_long is True
+    assert strategy.is_short is False
 
 
 def test_prepare_import_path_prioritizes_runtime_workspace_without_changing_cwd(
@@ -358,6 +481,39 @@ def test_emit_strategy_signals_persists_new_action_for_next_process(tmp_path: Pa
     assert state_file.read_text().strip() == "close_short"
 
 
+def test_emit_strategy_signals_allows_repeated_close_action_while_position_still_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-07T07:10:00+08:00",
+        "price": 2100.0,
+        "candle_timestamp": 1712189100000,
+        "bias": "short",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2166.33},
+        "action": "close_long",
+        "last_action": "close_long",
+    }
+
+    state_file = tmp_path / "last_action.txt"
+    state_file.write_text("close_long")
+    monkeypatch.setenv("JESSE_LAST_ACTION_FILE", str(state_file))
+    monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
+    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: {"side": "long", "qty": 1.0, "entry_price": 2166.33})
+    module.LAST_EMITTED_ACTION = None
+
+    result = module.emit_strategy_signals(loop_state)
+
+    assert result["emitted"] is True
+
+
 def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
     import scripts.run_jesse_live_loop as module
 
@@ -378,7 +534,7 @@ def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
     assert strategy.price == 2500.0
     assert strategy.cross_down is True
     assert strategy.cross_up is False
-    assert strategy.is_long is True
+    assert strategy.is_long is False
     assert strategy.is_short is False
     assert "pos_size" not in FakeStrategy.__dict__
 
@@ -455,7 +611,7 @@ def test_configure_strategy_for_signal_cycle_supports_read_only_property_classes
     assert strategy.price == 2500.0
     assert strategy.cross_down is True
     assert strategy.cross_up is False
-    assert strategy.is_long is True
+    assert strategy.is_long is False
     assert strategy.is_short is False
 
 
@@ -513,7 +669,7 @@ def test_configure_strategy_for_signal_cycle_does_not_eagerly_call_original_prop
     assert strategy.price == 2500.0
     assert strategy.cross_down is True
     assert strategy.cross_up is False
-    assert strategy.is_long is True
+    assert strategy.is_long is False
     assert strategy.is_short is False
 
 
@@ -601,12 +757,14 @@ def test_render_flat_summary_contains_account_fields():
         realized_pnl=35.2,
         unrealized_pnl=0.0,
         current_equity=1035.2,
+        latest_execution_result="execute",
     )
 
     assert "初始资金=1000.00" in text
     assert "已实现盈亏=+35.20" in text
     assert "未实现盈亏=+0.00" in text
     assert "当前权益=1035.20" in text
+    assert "最近执行结果=execute" in text
 
 
 def test_render_position_summary_contains_account_and_notional_fields():

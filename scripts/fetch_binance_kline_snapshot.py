@@ -11,8 +11,16 @@ def parse_klines_response(payload: list[list]) -> dict:
 
 def fetch_recent_klines(*, symbol: str, interval: str = "5m", limit: int = 50) -> dict:
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    with urllib.request.urlopen(url, timeout=5) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    last_error = None
+    for _ in range(2):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except Exception as exc:
+            last_error = exc
+    else:
+        raise last_error
     snapshot = parse_klines_response(payload)
     snapshot["symbol"] = symbol
     return snapshot
