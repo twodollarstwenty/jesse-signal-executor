@@ -11,6 +11,7 @@ from scripts.summarize_dryrun_account import compute_current_equity, compute_rea
 from scripts.build_current_position_panel import compute_position_qty
 from apps.signal_service.jesse_bridge.emitter import emit_signal
 from strategies.shared.ott2butkama_core import evaluate_direction
+from strategies.shared.ott2butkama_features import build_feature_state
 
 ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
@@ -217,20 +218,14 @@ def build_loop_state_from_candles(snapshot: dict) -> dict:
         bias = "flat"
         position = None
     else:
-        prev_price = close_prices[-2]
-        prev_prev_price = close_prices[-3]
-        cross_up = price > prev_price > prev_prev_price
-        cross_down = price < prev_price < prev_prev_price
-        chop_value = float(price)
-        chop_upper_band = float(prev_price)
-        chop_lower_band = float(prev_price)
-        intent = evaluate_direction(
-            cross_up=cross_up,
-            cross_down=cross_down,
-            chop_value=chop_value,
-            chop_upper_band=chop_upper_band,
-            chop_lower_band=chop_lower_band,
+        features = build_feature_state(
+            closes=close_prices,
+            ott_len=36,
+            ott_percent=5.4,
+            chop_rsi_len=17,
+            chop_bandwidth=144,
         )
+        intent = evaluate_direction(**features)
         bias = intent
         position = None if intent == "flat" else {"side": intent, "qty": 1.0, "entry_price": price}
 

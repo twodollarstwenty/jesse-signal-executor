@@ -215,6 +215,15 @@ def test_candle_driven_loop_state_normalization_keeps_short_position_from_reopen
         "timestamp": "2026-04-05T21:33:20+08:00",
     }
 
+    monkeypatch.setattr(module, "build_feature_state", lambda **kwargs: {
+        "cross_up": False,
+        "cross_down": True,
+        "chop_value": 40.0,
+        "chop_upper_band": 54.4,
+        "chop_lower_band": 45.6,
+    })
+    monkeypatch.setattr(module, "evaluate_direction", lambda **kwargs: "short")
+
     loop_state = module.build_loop_state_from_candles(snapshot)
     position = {"side": "short", "qty": 1.0, "entry_price": 2141.0}
 
@@ -233,23 +242,44 @@ def test_build_loop_state_from_candles_uses_shared_evaluator_result_for_intent(m
         "latest_timestamp": 1712189100000,
         "timestamp": "2026-04-05T21:33:20+08:00",
     }
-    calls = []
+    feature_calls = []
+    evaluator_calls = []
+
+    def fake_build_feature_state(**kwargs):
+        feature_calls.append(kwargs)
+        return {
+            "cross_up": True,
+            "cross_down": False,
+            "chop_value": 65.0,
+            "chop_upper_band": 54.4,
+            "chop_lower_band": 45.6,
+        }
 
     def fake_evaluate_direction(**kwargs):
-        calls.append(kwargs)
+        evaluator_calls.append(kwargs)
         return "flat"
 
+    monkeypatch.setattr(module, "build_feature_state", fake_build_feature_state)
     monkeypatch.setattr(module, "evaluate_direction", fake_evaluate_direction)
 
     loop_state = module.build_loop_state_from_candles(snapshot)
 
-    assert calls == [
+    assert feature_calls == [
         {
-            "cross_up": False,
-            "cross_down": True,
-            "chop_value": 2141.0,
-            "chop_upper_band": 2143.0,
-            "chop_lower_band": 2143.0,
+            "closes": [2145.0, 2143.0, 2141.0],
+            "ott_len": 36,
+            "ott_percent": 5.4,
+            "chop_rsi_len": 17,
+            "chop_bandwidth": 144,
+        }
+    ]
+    assert evaluator_calls == [
+        {
+            "cross_up": True,
+            "cross_down": False,
+            "chop_value": 65.0,
+            "chop_upper_band": 54.4,
+            "chop_lower_band": 45.6,
         }
     ]
     assert loop_state["intent"] == "flat"
@@ -266,6 +296,15 @@ def test_candle_driven_loop_state_normalization_converts_short_intent_against_lo
         "latest_timestamp": 1712189100000,
         "timestamp": "2026-04-05T21:33:20+08:00",
     }
+
+    monkeypatch.setattr(module, "build_feature_state", lambda **kwargs: {
+        "cross_up": False,
+        "cross_down": True,
+        "chop_value": 40.0,
+        "chop_upper_band": 54.4,
+        "chop_lower_band": 45.6,
+    })
+    monkeypatch.setattr(module, "evaluate_direction", lambda **kwargs: "short")
 
     loop_state = module.build_loop_state_from_candles(snapshot)
     position = {"side": "long", "qty": 1.0, "entry_price": 2141.0}

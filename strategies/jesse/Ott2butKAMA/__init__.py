@@ -5,6 +5,7 @@ from jesse.strategies import Strategy, cached
 import custom_indicators_ottkama as cta
 from apps.signal_service.jesse_bridge.emitter import emit_signal
 from strategies.shared.ott2butkama_core import evaluate_direction
+from strategies.shared.ott2butkama_features import build_feature_state
 
 
 # Old ott2 but uses KAMA instead of VAR.
@@ -75,13 +76,14 @@ class Ott2butKAMA(Strategy):
         return self._evaluate_direction() == 'short'
 
     def _evaluate_direction(self) -> str:
-        return evaluate_direction(
-            cross_up=self.cross_up,
-            cross_down=self.cross_down,
-            chop_value=float(self.chop[-1]),
-            chop_upper_band=float(self.chop_upper_band),
-            chop_lower_band=float(self.chop_lower_band),
+        features = build_feature_state(
+            closes=self.candles[-960:, 2],
+            ott_len=self.ott_len,
+            ott_percent=self.ott_percent,
+            chop_rsi_len=self.hp['chop_rsi_len'],
+            chop_bandwidth=self.hp['chop_bandwidth'],
         )
+        return evaluate_direction(**features)
 
     @property
     @cached
