@@ -71,3 +71,42 @@ def test_risk_managed25_grid_variant_contains_same_signal_actions():
     assert "open_short" in text
     assert "close_long" in text
     assert "close_short" in text
+
+
+def test_ott2butkama_direction_hooks_use_shared_evaluator(monkeypatch):
+    _install_ott2butkama_import_stubs()
+
+    import strategies.jesse.Ott2butKAMA as module
+
+    calls = []
+
+    def fake_evaluate_direction(**kwargs):
+        calls.append(kwargs)
+        return "long"
+
+    monkeypatch.setattr(module, "evaluate_direction", fake_evaluate_direction)
+
+    strategy = object.__new__(module.Ott2butKAMA)
+    strategy.hp = {"chop_bandwidth": 144}
+    monkeypatch.setattr(module.Ott2butKAMA, "cross_up", property(lambda self: True))
+    monkeypatch.setattr(module.Ott2butKAMA, "cross_down", property(lambda self: False))
+    monkeypatch.setattr(module.Ott2butKAMA, "chop", property(lambda self: [44.0, 65.0]))
+
+    assert strategy.should_long() is True
+    assert strategy.should_short() is False
+    assert calls == [
+        {
+            "cross_up": True,
+            "cross_down": False,
+            "chop_value": 65.0,
+            "chop_upper_band": 54.4,
+            "chop_lower_band": 45.6,
+        },
+        {
+            "cross_up": True,
+            "cross_down": False,
+            "chop_value": 65.0,
+            "chop_upper_band": 54.4,
+            "chop_lower_band": 45.6,
+        },
+    ]
