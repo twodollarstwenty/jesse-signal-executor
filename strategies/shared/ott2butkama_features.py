@@ -1,9 +1,11 @@
+import numpy as np
 import talib
 
-import custom_indicators_ottkama as cta
+from strategies.shared import custom_indicators_ottkama as cta
 
 
 def build_feature_state(*, closes, ott_len: int, ott_percent: float, chop_rsi_len: int, chop_bandwidth: int) -> dict:
+    closes = np.asarray(closes, dtype=float)
     ott = cta.ott(closes, ott_len, ott_percent, ma_type="kama", sequential=True)
     chop = talib.RSI(closes, chop_rsi_len)
 

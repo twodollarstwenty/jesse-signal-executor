@@ -215,7 +215,7 @@ def test_candle_driven_loop_state_normalization_keeps_short_position_from_reopen
         "timestamp": "2026-04-05T21:33:20+08:00",
     }
 
-    monkeypatch.setattr(module, "build_feature_state", lambda **kwargs: {
+    monkeypatch.setattr("strategies.shared.ott2butkama_features.build_feature_state", lambda **kwargs: {
         "cross_up": False,
         "cross_down": True,
         "chop_value": 40.0,
@@ -259,7 +259,7 @@ def test_build_loop_state_from_candles_uses_shared_evaluator_result_for_intent(m
         evaluator_calls.append(kwargs)
         return "flat"
 
-    monkeypatch.setattr(module, "build_feature_state", fake_build_feature_state)
+    monkeypatch.setattr("strategies.shared.ott2butkama_features.build_feature_state", fake_build_feature_state)
     monkeypatch.setattr(module, "evaluate_direction", fake_evaluate_direction)
 
     loop_state = module.build_loop_state_from_candles(snapshot)
@@ -297,7 +297,7 @@ def test_candle_driven_loop_state_normalization_converts_short_intent_against_lo
         "timestamp": "2026-04-05T21:33:20+08:00",
     }
 
-    monkeypatch.setattr(module, "build_feature_state", lambda **kwargs: {
+    monkeypatch.setattr("strategies.shared.ott2butkama_features.build_feature_state", lambda **kwargs: {
         "cross_up": False,
         "cross_down": True,
         "chop_value": 40.0,

@@ -5,15 +5,30 @@ from importlib import import_module
 from contextlib import contextmanager
 from pathlib import Path
 
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+# Map project DB env to the names Jesse expects before importing shared/Jesse-dependent modules.
+if "PASSWORD" not in os.environ and "POSTGRES_PASSWORD" in os.environ:
+    os.environ["PASSWORD"] = os.environ["POSTGRES_PASSWORD"]
+if "HOST" not in os.environ and "POSTGRES_HOST" in os.environ:
+    os.environ["HOST"] = os.environ["POSTGRES_HOST"]
+if "PORT" not in os.environ and "POSTGRES_PORT" in os.environ:
+    os.environ["PORT"] = os.environ["POSTGRES_PORT"]
+if "DB_NAME" not in os.environ and "POSTGRES_DB" in os.environ:
+    os.environ["DB_NAME"] = os.environ["POSTGRES_DB"]
+if "USERNAME" not in os.environ and "POSTGRES_USER" in os.environ:
+    os.environ["USERNAME"] = os.environ["POSTGRES_USER"]
+
 from scripts.fetch_binance_kline_snapshot import fetch_recent_klines
 from apps.shared.db import connect
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 from scripts.build_current_position_panel import compute_position_qty
-from apps.signal_service.jesse_bridge.emitter import emit_signal
 from strategies.shared.ott2butkama_core import evaluate_direction
-from strategies.shared.ott2butkama_features import build_feature_state
 
-ROOT = Path(__file__).resolve().parents[1]
 STRATEGY_NAME = "Ott2butKAMA"
 SYMBOL = "ETH-USDT"
 TIMEFRAME = "5m"
@@ -210,6 +225,8 @@ def build_loop_state_from_market_snapshot(snapshot: dict) -> dict:
 
 
 def build_loop_state_from_candles(snapshot: dict) -> dict:
+    from strategies.shared.ott2butkama_features import build_feature_state
+
     close_prices = snapshot["close_prices"]
     price = close_prices[-1]
 
@@ -347,6 +364,8 @@ def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None
 
 
 def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
+    from apps.signal_service.jesse_bridge.emitter import emit_signal
+
     loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
     action = loop_state["action"]
     emitted = False
@@ -467,33 +486,33 @@ def run_cycle() -> None:
     prepare_import_path(workspace)
     current_time = datetime.now(timezone.utc)
     try:
-        snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
-        snapshot["timestamp"] = current_time.isoformat()
-        latest_candle_ts = int(snapshot["latest_timestamp"])
-        remembered_candle_ts = read_last_processed_candle_ts()
-        if remembered_candle_ts is not None:
-            LAST_PROCESSED_CANDLE_TS = remembered_candle_ts
-        if LAST_PROCESSED_CANDLE_TS is None:
-            LAST_PROCESSED_CANDLE_TS = latest_candle_ts
-            write_last_processed_candle_ts(latest_candle_ts)
-            print(f"[{current_time.astimezone(CST).isoformat()}] 初始化 5m 基线K线，不发单")
-            return
-        if LAST_PROCESSED_CANDLE_TS == latest_candle_ts:
-            print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
-            return
-        loop_state = build_loop_state_from_candles(snapshot)
-        persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
-        normalized_action = normalize_intent_to_action(intent=loop_state["intent"], position=persistent_position)
-        loop_state["current_position"] = persistent_position
-        loop_state["action"] = normalized_action
-        loop_state["last_action"] = normalized_action
-    except Exception:
-        print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动")
+        with workspace_cwd(workspace):
+            snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
+            snapshot["timestamp"] = current_time.isoformat()
+            latest_candle_ts = int(snapshot["latest_timestamp"])
+            remembered_candle_ts = read_last_processed_candle_ts()
+            if remembered_candle_ts is not None:
+                LAST_PROCESSED_CANDLE_TS = remembered_candle_ts
+            if LAST_PROCESSED_CANDLE_TS is None:
+                LAST_PROCESSED_CANDLE_TS = latest_candle_ts
+                write_last_processed_candle_ts(latest_candle_ts)
+                print(f"[{current_time.astimezone(CST).isoformat()}] 初始化 5m 基线K线，不发单")
+                return
+            if LAST_PROCESSED_CANDLE_TS == latest_candle_ts:
+                print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
+                return
+            loop_state = build_loop_state_from_candles(snapshot)
+            persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
+            normalized_action = normalize_intent_to_action(intent=loop_state["intent"], position=persistent_position)
+            loop_state["current_position"] = persistent_position
+            loop_state["action"] = normalized_action
+            loop_state["last_action"] = normalized_action
+            ACTIVE_LOOP_STATE = loop_state
+            emitted_loop_state = emit_strategy_signals(loop_state)
+            ACTIVE_LOOP_STATE = None
+    except Exception as exc:
+        print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动: {exc.__class__.__name__}: {exc}")
         return
-    ACTIVE_LOOP_STATE = loop_state
-    with workspace_cwd(workspace):
-        emitted_loop_state = emit_strategy_signals(loop_state)
-    ACTIVE_LOOP_STATE = None
     LAST_PROCESSED_CANDLE_TS = latest_candle_ts
     write_last_processed_candle_ts(latest_candle_ts)
     if isinstance(emitted_loop_state, dict):

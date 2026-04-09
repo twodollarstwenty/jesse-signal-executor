@@ -21,6 +21,13 @@ def sync_strategy(strategy_name: str) -> None:
         shutil.rmtree(target)
     shutil.copytree(source, target)
 
+    shared_source = ROOT / "strategies" / "shared"
+    shared_target = ROOT / "runtime" / "jesse_workspace" / "strategies" / "shared"
+    if shared_source.exists():
+        if shared_target.exists():
+            shutil.rmtree(shared_target)
+        shutil.copytree(shared_source, shared_target)
+
     for directory_name in ("custom_indicators_ottkama", "custom_indicators"):
         indicator_source = ROOT / "strategies" / "jesse" / directory_name
         indicator_target = ROOT / "runtime" / "jesse_workspace" / directory_name

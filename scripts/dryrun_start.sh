@@ -39,14 +39,15 @@ get_command_line() {
 find_running_pid_for_script() {
   local expected_script="$1"
   local heartbeat_file="$2"
+  local heartbeat_env_name="$3"
   local pid command
 
   while read -r pid command; do
-    if [[ -n "${pid}" ]] && [[ "${command}" == *"${heartbeat_file}"* ]]; then
+    if [[ -n "${pid}" ]] && [[ "${command}" == *"${heartbeat_env_name}=${heartbeat_file}"* ]]; then
       printf '%s\n' "${pid}"
       return 0
     fi
-  done < <(ps -ax -o pid= -o command=)
+  done < <(ps eww -ax -o pid= -o command=)
 }
 
 pid_matches_script() {
@@ -94,7 +95,7 @@ wait_for_heartbeat() {
   local expected_script="$2"
   local heartbeat_file="$3"
 
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75; do
     if ! kill -0 "${pid}" 2>/dev/null || ! pid_matches_script "${pid}" "${expected_script}"; then
       return 1
     fi
@@ -155,7 +156,7 @@ start_process() {
   cleanup_stale_pid "${pid_file}" "${script_path}"
 
   local existing_pid
-  existing_pid="$(find_running_pid_for_script "${script_path}" "${heartbeat_file}" | head -n 1)"
+  existing_pid="$(find_running_pid_for_script "${script_path}" "${heartbeat_file}" "${heartbeat_env_name}" | head -n 1)"
   if [[ -n "${existing_pid}" ]] && [[ ! -f "${pid_file}" ]]; then
     printf '%s already running without pid file (pid=%s)\n' "${name}" "${existing_pid}" >&2
     return 1
@@ -194,8 +195,16 @@ start_process() {
   fi
 
   if ! wait_for_heartbeat "${pid}" "${script_path}" "${heartbeat_file}"; then
+    local heartbeat_state="missing"
+    local process_state="dead"
+    if [[ -f "${heartbeat_file}" ]]; then
+      heartbeat_state="present"
+    fi
+    if kill -0 "${pid}" 2>/dev/null; then
+      process_state="alive"
+    fi
     rm -f "${pid_file}"
-    printf 'failed to start %s; heartbeat not observed; see %s\n' "${name}" "${log_file}" >&2
+    printf 'failed to start %s; heartbeat not observed (process=%s heartbeat=%s); see %s\n' "${name}" "${process_state}" "${heartbeat_state}" "${log_file}" >&2
     return 1
   fi
 

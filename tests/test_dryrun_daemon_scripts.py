@@ -295,3 +295,111 @@ def test_dryrun_status_does_not_report_stale_during_expected_startup_window(tmp_
     assert "executor: running" in status_completed.stdout
     assert "jesse-dryrun: running" in status_completed.stdout
     assert stop_completed.returncode == 0
+
+
+def test_dryrun_start_script_allows_longer_jesse_heartbeat_warmup(tmp_path):
+    runtime_root = tmp_path / "runtime-root"
+    env = os.environ.copy()
+    env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
+    heartbeat_path = runtime_root / "heartbeats" / "jesse-dryrun.heartbeat"
+    env["JESSE_DRYRUN_COMMAND"] = (
+        "python3 -c \"import sys,time; from pathlib import Path; p = Path(sys.argv[1]); "
+        "p.parent.mkdir(parents=True, exist_ok=True); time.sleep(7); p.write_text('ok'); time.sleep(1)\" "
+        f'"{heartbeat_path}"'
+    )
+
+    completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    stop_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_stop.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert "started jesse-dryrun" in completed.stdout
+    assert stop_completed.returncode == 0
+
+
+def test_dryrun_status_detects_live_jesse_process_even_without_pid_file(tmp_path):
+    runtime_root = tmp_path / "runtime-root"
+    env = os.environ.copy()
+    env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
+    heartbeat_path = runtime_root / "heartbeats" / "jesse-dryrun.heartbeat"
+    env["JESSE_DRYRUN_COMMAND"] = f'python3 "{LONG_RUNNING_JESSE_TEST_SCRIPT}" "{heartbeat_path}"'
+
+    started = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert started.returncode == 0
+
+    (runtime_root / "pids" / "jesse-dryrun.pid").unlink()
+
+    status_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_status.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    stop_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_stop.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "jesse-dryrun: running" in status_completed.stdout
+    assert stop_completed.returncode == 0
+
+
+def test_dryrun_stop_terminates_live_jesse_process_even_without_pid_file(tmp_path):
+    runtime_root = tmp_path / "runtime-root"
+    env = os.environ.copy()
+    env["DRYRUN_RUNTIME_DIR"] = str(runtime_root)
+    heartbeat_path = runtime_root / "heartbeats" / "jesse-dryrun.heartbeat"
+    env["JESSE_DRYRUN_COMMAND"] = f'python3 "{LONG_RUNNING_JESSE_TEST_SCRIPT}" "{heartbeat_path}"'
+
+    started = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_start.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert started.returncode == 0
+
+    (runtime_root / "pids" / "jesse-dryrun.pid").unlink()
+
+    stop_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_stop.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    status_completed = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts/dryrun_status.sh")],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert stop_completed.returncode == 0
+    assert "jesse-dryrun: stopped" in status_completed.stdout
