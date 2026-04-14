@@ -36,5 +36,14 @@ def sync_strategy(strategy_name: str) -> None:
         shutil.copytree(indicator_source, indicator_target)
 
 
+def sync_strategies(strategy_names: list[str]) -> None:
+    seen: set[str] = set()
+    for strategy_name in strategy_names:
+        if strategy_name in seen:
+            continue
+        seen.add(strategy_name)
+        sync_strategy(strategy_name)
+
+
 if __name__ == "__main__":
     sync_strategy("Ott2butKAMA")
