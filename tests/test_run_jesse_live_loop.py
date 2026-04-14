@@ -13,6 +13,42 @@ def test_build_workspace_path_points_to_runtime_workspace():
     assert workspace.parent.name == "runtime"
 
 
+def test_normalize_symbol_adds_dash_for_binance_symbol():
+    from scripts.run_jesse_live_loop import normalize_symbol
+
+    assert normalize_symbol("ETHUSDT") == "ETH-USDT"
+
+
+def test_normalize_symbol_preserves_existing_dash():
+    from scripts.run_jesse_live_loop import normalize_symbol
+
+    assert normalize_symbol("ETH-USDT") == "ETH-USDT"
+
+
+def test_build_runtime_context_uses_instance_and_runtime_paths(tmp_path: Path):
+    from scripts.run_jesse_live_loop import build_runtime_context
+
+    instance = {
+        "id": "ott_eth_5m",
+        "strategy": "Ott2butKAMA",
+        "symbol": "ETHUSDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {"mode": "fixed_fraction", "position_fraction": 0.2, "leverage": 10},
+    }
+
+    context = build_runtime_context(instance, tmp_path)
+
+    assert context["instance_id"] == "ott_eth_5m"
+    assert context["strategy_name"] == "Ott2butKAMA"
+    assert context["symbol"] == "ETH-USDT"
+    assert context["timeframe"] == "5m"
+    assert context["capital_usdt"] == 1000
+    assert context["sizing"]["mode"] == "fixed_fraction"
+    assert context["paths"]["last_action"] == tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt"
+    assert context["paths"]["last_candle"] == tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt"
+
+
 def test_ensure_runtime_ready_raises_when_workspace_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import scripts.run_jesse_live_loop as module
 
@@ -40,7 +76,7 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
             "latest_timestamp": 1712189100000,
         },
     )
-    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: calls.append(f"emit:{Path.cwd()}"))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: calls.append(f"emit:{Path.cwd()}"))
     module.LAST_PROCESSED_CANDLE_TS = 1712188800000
     monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(tmp_path / "last_candle_ts.txt"))
 
@@ -50,6 +86,50 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
 
     assert calls == [f"emit:{workspace}"]
     assert Path.cwd() == original_cwd
+
+
+def test_run_cycle_uses_context_paths_for_last_candle_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+    context = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {"mode": "fixed_fraction", "position_fraction": 0.2, "leverage": 10},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt",
+        },
+    }
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+    calls = []
+    context["paths"]["last_candle"].parent.mkdir(parents=True, exist_ok=True)
+    context["paths"]["last_candle"].write_text("1712188800000")
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "emit_strategy_signals",
+        lambda context, loop_state=None: calls.append((loop_state, context)) or {**loop_state, "emitted": True},
+    )
+    module.LAST_PROCESSED_CANDLE_TS = None
+
+    module.run_cycle(context=context)
+
+    assert len(calls) == 1
+    assert calls[0][1] is context
+    assert context["paths"]["last_candle"].read_text().strip() == "1712189100000"
 
 
 def test_run_cycle_skips_action_when_latest_candle_is_already_processed(
@@ -86,6 +166,116 @@ def test_run_cycle_skips_action_when_latest_candle_is_already_processed(
     assert "等待新 5m K 线" in output
 
 
+def test_run_cycle_reads_per_instance_last_candle_state_from_context_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    context = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {"mode": "fixed_fraction", "position_fraction": 0.2, "leverage": 10},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt",
+        },
+    }
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+    context["paths"]["last_candle"].parent.mkdir(parents=True, exist_ok=True)
+    context["paths"]["last_candle"].write_text("1712189100000")
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "emit_strategy_signals",
+        lambda context, loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for already-processed candle")),
+    )
+    module.LAST_PROCESSED_CANDLE_TS = None
+
+    module.run_cycle(context=context)
+
+    output = capsys.readouterr().out.strip()
+    assert "等待新 5m K 线" in output
+
+
+def test_run_cycle_does_not_share_last_processed_candle_between_provided_contexts_without_state_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+    context_a = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {"mode": "fixed_fraction", "position_fraction": 0.2, "leverage": 10},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt",
+        },
+    }
+    context_b = {
+        "instance_id": "ott_btc_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "BTC-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {"mode": "fixed_fraction", "position_fraction": 0.2, "leverage": 10},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_btc_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_btc_5m" / "state" / "last_action.txt",
+        },
+    }
+    snapshots = iter(
+        [
+            {
+                "symbol": "ETHUSDT",
+                "close_prices": [2505.0, 2516.8, 2524.1],
+                "latest_timestamp": 1712189100000,
+                "timestamp": "2026-04-05T21:33:20+08:00",
+            },
+            {
+                "symbol": "BTCUSDT",
+                "close_prices": [65005.0, 65116.8, 65224.1],
+                "latest_timestamp": 1712189200000,
+                "timestamp": "2026-04-05T21:34:20+08:00",
+            },
+        ]
+    )
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: next(snapshots))
+    monkeypatch.setattr(
+        module,
+        "emit_strategy_signals",
+        lambda loop_state=None, context=None: (_ for _ in ()).throw(AssertionError("should not emit on first observation for each instance")),
+    )
+    module.LAST_PROCESSED_CANDLE_TS = None
+
+    module.run_cycle(context=context_a)
+    module.run_cycle(context=context_b)
+
+    assert context_a["paths"]["last_candle"].read_text().strip() == "1712189100000"
+    assert context_b["paths"]["last_candle"].read_text().strip() == "1712189200000"
+
+
 def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     import scripts.run_jesse_live_loop as module
 
@@ -107,7 +297,7 @@ def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkey
     monkeypatch.setattr(
         module,
         "emit_strategy_signals",
-        lambda loop_state=None: calls.append(loop_state) or {**loop_state, "emitted": True},
+        lambda context, loop_state=None: calls.append(loop_state) or {**loop_state, "emitted": True},
     )
     module.LAST_PROCESSED_CANDLE_TS = 1712188800000
     monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
@@ -134,7 +324,7 @@ def test_run_cycle_initializes_baseline_candle_without_emitting_on_first_observa
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
-    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit on first observation")))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit on first observation")))
     module.LAST_PROCESSED_CANDLE_TS = None
     state_file = tmp_path / "last_candle_ts.txt"
     monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
@@ -165,7 +355,7 @@ def test_run_cycle_reads_last_processed_candle_from_state_file(tmp_path: Path, m
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
-    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for already-processed candle")))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit for already-processed candle")))
     module.LAST_PROCESSED_CANDLE_TS = None
     monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(state_file))
 
@@ -389,7 +579,7 @@ def test_emit_strategy_signals_calls_strategy_entrypoints(monkeypatch: pytest.Mo
     monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
     module.LAST_EMITTED_ACTION = None
 
-    module.emit_strategy_signals(loop_state)
+    module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert calls == ["configure", "drive"]
 
@@ -420,7 +610,7 @@ def test_emit_strategy_signals_suppresses_repeated_identical_action(monkeypatch:
     monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
     module.LAST_EMITTED_ACTION = "open_long"
 
-    result = module.emit_strategy_signals(loop_state)
+    result = module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert result["emitted"] is False
 
@@ -451,7 +641,7 @@ def test_emit_strategy_signals_emits_when_action_changes(monkeypatch: pytest.Mon
     monkeypatch.setattr(module, "write_last_emitted_action", lambda action: None)
     module.LAST_EMITTED_ACTION = "open_short"
 
-    result = module.emit_strategy_signals(loop_state)
+    result = module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert result["emitted"] is True
 
@@ -483,7 +673,7 @@ def test_emit_strategy_signals_suppresses_repeated_action_across_process_boundar
     monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
     module.LAST_EMITTED_ACTION = None
 
-    result = module.emit_strategy_signals(loop_state)
+    result = module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert result["emitted"] is False
 
@@ -514,7 +704,7 @@ def test_emit_strategy_signals_persists_new_action_for_next_process(tmp_path: Pa
     monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
     module.LAST_EMITTED_ACTION = None
 
-    result = module.emit_strategy_signals(loop_state)
+    result = module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert result["emitted"] is True
     assert state_file.read_text().strip() == "close_short"
@@ -548,9 +738,74 @@ def test_emit_strategy_signals_allows_repeated_close_action_while_position_still
     monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: {"side": "long", "qty": 1.0, "entry_price": 2166.33})
     module.LAST_EMITTED_ACTION = None
 
-    result = module.emit_strategy_signals(loop_state)
+    result = module.emit_strategy_signals(None, loop_state=loop_state)
 
     assert result["emitted"] is True
+
+
+def test_emit_strategy_signals_does_not_share_last_action_between_contexts_without_state_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import scripts.run_jesse_live_loop as module
+
+    strategy_a = type("FakeStrategy", (), {})()
+    strategy_a.symbol = "ETH-USDT"
+    strategy_a.timeframe = "5m"
+    strategy_a.buy = None
+    strategy_a.sell = None
+
+    strategy_b = type("FakeStrategy", (), {})()
+    strategy_b.symbol = "BTC-USDT"
+    strategy_b.timeframe = "5m"
+    strategy_b.buy = None
+    strategy_b.sell = None
+
+    strategies = iter([strategy_a, strategy_b])
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "long",
+        "position": {"side": "long", "qty": 1.0, "entry_price": 2506.8},
+        "action": "open_long",
+        "last_action": "open_long",
+    }
+    context_a = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt",
+        },
+    }
+    context_b = {
+        "instance_id": "ott_btc_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "BTC-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_btc_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_btc_5m" / "state" / "last_action.txt",
+        },
+    }
+
+    monkeypatch.setattr(module, "build_strategy_instance", lambda context=None: next(strategies))
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None, context=None: None)
+    monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state, context=None: True)
+    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: None)
+    module.LAST_EMITTED_ACTION = None
+
+    result_a = module.emit_strategy_signals(context_a, loop_state=loop_state)
+    result_b = module.emit_strategy_signals(context_b, loop_state=loop_state)
+
+    assert result_a["emitted"] is True
+    assert result_b["emitted"] is True
 
 
 def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
@@ -605,6 +860,31 @@ def test_build_strategy_instance_imports_from_runtime_workspace(tmp_path: Path, 
     strategy = module.build_strategy_instance()
 
     assert strategy.__class__.source == "runtime"
+
+    sys.path[:] = original_sys_path
+
+
+def test_build_strategy_instance_uses_configured_strategy_class_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    runtime_package = workspace / "strategies" / "CustomStrategy"
+    repo_strategies = tmp_path / "strategies" / "jesse"
+    runtime_package.mkdir(parents=True)
+    repo_strategies.mkdir(parents=True)
+    (runtime_package / "__init__.py").write_text(
+        "class CustomStrategy:\n    source = 'runtime-custom'\n"
+    )
+
+    original_sys_path = sys.path.copy()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    module.prepare_import_path(workspace)
+    sys.modules.pop("CustomStrategy", None)
+
+    strategy = module.build_strategy_instance({"strategy_name": "CustomStrategy"})
+
+    assert strategy.__class__.__name__ == "CustomStrategy"
+    assert strategy.__class__.source == "runtime-custom"
 
     sys.path[:] = original_sys_path
 
@@ -876,7 +1156,7 @@ def test_run_cycle_does_not_emit_signal_when_market_snapshot_fetch_fails(tmp_pat
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: (_ for _ in ()).throw(RuntimeError("fetch failed")))
-    monkeypatch.setattr(module, "emit_strategy_signals", lambda loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit when market fetch fails")))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: (_ for _ in ()).throw(AssertionError("should not emit when market fetch fails")))
 
     module.run_cycle()
 

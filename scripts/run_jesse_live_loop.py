@@ -25,6 +25,7 @@ if "USERNAME" not in os.environ and "POSTGRES_USER" in os.environ:
 
 from scripts.fetch_binance_kline_snapshot import fetch_recent_klines
 from apps.shared.db import connect
+from apps.runtime.instance_runtime import build_instance_paths
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 from scripts.build_current_position_panel import compute_position_qty
 from strategies.shared.ott2butkama_core import evaluate_direction
@@ -35,43 +36,113 @@ TIMEFRAME = "5m"
 ACTIVE_LOOP_STATE: dict | None = None
 LAST_EMITTED_ACTION: str | None = None
 LAST_PROCESSED_CANDLE_TS: int | None = None
+LAST_EMITTED_ACTION_BY_CONTEXT: dict[Path, str] = {}
+LAST_PROCESSED_CANDLE_TS_BY_CONTEXT: dict[Path, int] = {}
 CST = timezone(timedelta(hours=8))
 
 
-def get_last_action_file() -> Path:
-    return Path(os.getenv("JESSE_LAST_ACTION_FILE", str(ROOT / "runtime" / "dryrun" / "last_action.txt")))
+def normalize_symbol(symbol: str) -> str:
+    if "-" in symbol:
+        return symbol
+    if symbol.endswith("USDT") and len(symbol) > 4:
+        return f"{symbol[:-4]}-USDT"
+    return symbol
 
 
-def get_last_candle_file() -> Path:
-    return Path(os.getenv("JESSE_LAST_CANDLE_FILE", str(ROOT / "runtime" / "dryrun" / "last_candle_ts.txt")))
+def build_default_runtime_context() -> dict:
+    return {
+        "instance_id": "dryrun",
+        "strategy_name": STRATEGY_NAME,
+        "symbol": SYMBOL,
+        "timeframe": TIMEFRAME,
+        "capital_usdt": 1000.0,
+        "sizing": {},
+        "paths": {
+            "last_action": Path(os.getenv("JESSE_LAST_ACTION_FILE", str(ROOT / "runtime" / "dryrun" / "last_action.txt"))),
+            "last_candle": Path(os.getenv("JESSE_LAST_CANDLE_FILE", str(ROOT / "runtime" / "dryrun" / "last_candle_ts.txt"))),
+        },
+    }
 
 
-def read_last_processed_candle_ts() -> int | None:
-    path = get_last_candle_file()
+def build_runtime_context(instance: dict, runtime_root: Path) -> dict:
+    sizing = dict(instance["sizing"])
+    return {
+        "instance_id": instance["id"],
+        "strategy_name": instance["strategy"],
+        "symbol": normalize_symbol(instance["symbol"]),
+        "timeframe": instance["timeframe"],
+        "capital_usdt": instance["capital_usdt"],
+        "sizing": sizing,
+        "paths": build_instance_paths(runtime_root, instance["id"]),
+    }
+
+
+def get_last_action_file(context: dict | None = None) -> Path:
+    runtime_context = context or build_default_runtime_context()
+    return runtime_context["paths"]["last_action"]
+
+
+def get_last_candle_file(context: dict | None = None) -> Path:
+    runtime_context = context or build_default_runtime_context()
+    return runtime_context["paths"]["last_candle"]
+
+
+def read_last_processed_candle_ts(context: dict | None = None) -> int | None:
+    path = get_last_candle_file(context)
     if not path.exists():
         return None
     text = path.read_text().strip()
     return int(text) if text else None
 
 
-def write_last_processed_candle_ts(value: int) -> None:
-    path = get_last_candle_file()
+def write_last_processed_candle_ts(value: int, context: dict | None = None) -> None:
+    path = get_last_candle_file(context)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(value))
 
 
-def read_last_emitted_action() -> str | None:
-    path = get_last_action_file()
+def get_in_memory_last_processed_candle_ts(context: dict | None = None) -> int | None:
+    if context is None:
+        return LAST_PROCESSED_CANDLE_TS
+    return LAST_PROCESSED_CANDLE_TS_BY_CONTEXT.get(get_last_candle_file(context))
+
+
+def set_in_memory_last_processed_candle_ts(value: int, context: dict | None = None) -> None:
+    global LAST_PROCESSED_CANDLE_TS
+
+    if context is None:
+        LAST_PROCESSED_CANDLE_TS = value
+        return
+    LAST_PROCESSED_CANDLE_TS_BY_CONTEXT[get_last_candle_file(context)] = value
+
+
+def read_last_emitted_action(context: dict | None = None) -> str | None:
+    path = get_last_action_file(context)
     if not path.exists():
         return None
     text = path.read_text().strip()
     return text or None
 
 
-def write_last_emitted_action(action: str) -> None:
-    path = get_last_action_file()
+def write_last_emitted_action(action: str, context: dict | None = None) -> None:
+    path = get_last_action_file(context)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(action)
+
+
+def get_in_memory_last_emitted_action(context: dict | None = None) -> str | None:
+    if context is None:
+        return LAST_EMITTED_ACTION
+    return LAST_EMITTED_ACTION_BY_CONTEXT.get(get_last_action_file(context))
+
+
+def set_in_memory_last_emitted_action(action: str, context: dict | None = None) -> None:
+    global LAST_EMITTED_ACTION
+
+    if context is None:
+        LAST_EMITTED_ACTION = action
+        return
+    LAST_EMITTED_ACTION_BY_CONTEXT[get_last_action_file(context)] = action
 
 
 def compute_position_pnl(*, position: dict, current_price: float) -> tuple[float, float]:
@@ -336,21 +407,25 @@ def _set_runtime_attr(strategy, name: str, value) -> None:
     setattr(strategy, name, value)
 
 
-def build_strategy_instance():
-    Ott2butKAMA = import_module(STRATEGY_NAME).Ott2butKAMA
+def build_strategy_instance(context: dict | None = None):
+    runtime_context = context or build_default_runtime_context()
+    strategy_name = runtime_context["strategy_name"]
+    strategy_module = import_module(strategy_name)
+    strategy_class = getattr(strategy_module, strategy_name)
 
-    return object.__new__(Ott2butKAMA)
+    return object.__new__(strategy_class)
 
 
-def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None) -> None:
+def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None, context: dict | None = None) -> None:
+    runtime_context = context or build_default_runtime_context()
     loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
     price = loop_state["price"]
     current_position = loop_state.get("current_position")
     side = current_position["side"] if current_position else None
 
     strategy.exchange = "Binance Perpetual Futures"
-    strategy.symbol = SYMBOL
-    strategy.timeframe = TIMEFRAME
+    strategy.symbol = runtime_context["symbol"]
+    strategy.timeframe = runtime_context["timeframe"]
     strategy.buy = None
     strategy.sell = None
     strategy.liquidate = lambda: None
@@ -363,9 +438,10 @@ def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None
     _set_runtime_attr(strategy, "is_short", side == "short")
 
 
-def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
+def drive_strategy_cycle(strategy, loop_state: dict, context: dict | None = None) -> bool:
     from apps.signal_service.jesse_bridge.emitter import emit_signal
 
+    runtime_context = context or build_default_runtime_context()
     loop_state = loop_state or getattr(strategy, "_loop_state", None) or build_default_loop_state()
     action = loop_state["action"]
     emitted = False
@@ -378,9 +454,9 @@ def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
         emitted = True
     elif action == "close_long":
         emit_signal(
-            strategy=STRATEGY_NAME,
-            symbol=SYMBOL.replace("-", ""),
-            timeframe=TIMEFRAME,
+            strategy=runtime_context["strategy_name"],
+            symbol=runtime_context["symbol"].replace("-", ""),
+            timeframe=runtime_context["timeframe"],
             candle_timestamp=int(loop_state["candle_timestamp"]),
             action="close_long",
             payload={"source": "jesse", "price": float(loop_state["price"]), "position_side": "long", "qty": 1.0},
@@ -388,9 +464,9 @@ def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
         emitted = True
     elif action == "close_short":
         emit_signal(
-            strategy=STRATEGY_NAME,
-            symbol=SYMBOL.replace("-", ""),
-            timeframe=TIMEFRAME,
+            strategy=runtime_context["strategy_name"],
+            symbol=runtime_context["symbol"].replace("-", ""),
+            timeframe=runtime_context["timeframe"],
             candle_timestamp=int(loop_state["candle_timestamp"]),
             action="close_short",
             payload={"source": "jesse", "price": float(loop_state["price"]), "position_side": "short", "qty": 1.0},
@@ -400,31 +476,51 @@ def drive_strategy_cycle(strategy, loop_state: dict) -> bool:
     return emitted
 
 
-def emit_strategy_signals(loop_state: dict | None = None) -> dict:
-    global LAST_EMITTED_ACTION
-
+def emit_strategy_signals(context: dict | None, loop_state: dict | None = None) -> dict:
+    runtime_context = context or build_default_runtime_context()
     loop_state = loop_state or ACTIVE_LOOP_STATE or build_loop_state()
-    strategy = build_strategy_instance()
+    if context is None:
+        strategy = build_strategy_instance()
+    else:
+        strategy = build_strategy_instance(runtime_context)
     strategy._loop_state = loop_state
-    configure_strategy_for_signal_cycle(strategy)
+    if context is None:
+        configure_strategy_for_signal_cycle(strategy)
+    else:
+        configure_strategy_for_signal_cycle(strategy, context=runtime_context)
 
     action = loop_state.get("action", "none")
-    remembered_action = read_last_emitted_action() or LAST_EMITTED_ACTION
-    persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
+    if context is None:
+        remembered_action = read_last_emitted_action() or get_in_memory_last_emitted_action()
+    else:
+        remembered_action = read_last_emitted_action(runtime_context) or get_in_memory_last_emitted_action(runtime_context)
+    persistent_position = fetch_persistent_position(symbol=runtime_context["symbol"].replace("-", ""))
     if action == "none":
         emitted = False
     elif action in {"close_long", "close_short"} and persistent_position is not None:
-        emitted = drive_strategy_cycle(strategy, loop_state)
+        if context is None:
+            emitted = drive_strategy_cycle(strategy, loop_state)
+        else:
+            emitted = drive_strategy_cycle(strategy, loop_state, runtime_context)
         if emitted:
-            LAST_EMITTED_ACTION = action
-            write_last_emitted_action(action)
+            set_in_memory_last_emitted_action(action, context)
+            if context is None:
+                write_last_emitted_action(action)
+            else:
+                write_last_emitted_action(action, runtime_context)
     elif action == remembered_action:
         emitted = False
     else:
-        emitted = drive_strategy_cycle(strategy, loop_state)
+        if context is None:
+            emitted = drive_strategy_cycle(strategy, loop_state)
+        else:
+            emitted = drive_strategy_cycle(strategy, loop_state, runtime_context)
         if emitted:
-            LAST_EMITTED_ACTION = action
-            write_last_emitted_action(action)
+            set_in_memory_last_emitted_action(action, context)
+            if context is None:
+                write_last_emitted_action(action)
+            else:
+                write_last_emitted_action(action, runtime_context)
 
     return {
         **loop_state,
@@ -432,10 +528,11 @@ def emit_strategy_signals(loop_state: dict | None = None) -> dict:
     }
 
 
-def print_cycle_summary(loop_state: dict) -> None:
-    symbol = SYMBOL.replace("-", "")
+def print_cycle_summary(loop_state: dict, context: dict | None = None) -> None:
+    runtime_context = context or build_default_runtime_context()
+    symbol = runtime_context["symbol"].replace("-", "")
     persistent_position = fetch_persistent_position(symbol=symbol)
-    initial_capital = 1000.0
+    initial_capital = float(runtime_context["capital_usdt"])
     realized_pnl = compute_realized_pnl()
     unrealized_pnl = compute_unrealized_pnl(position=persistent_position, current_price=loop_state["price"])
     current_equity = compute_current_equity(
@@ -448,7 +545,7 @@ def print_cycle_summary(loop_state: dict) -> None:
         print(
             render_flat_summary(
                 timestamp=loop_state["timestamp"],
-                strategy=STRATEGY_NAME,
+                strategy=runtime_context["strategy_name"],
                 symbol=symbol,
                 price=loop_state["price"],
                 bias=loop_state["bias"],
@@ -465,7 +562,7 @@ def print_cycle_summary(loop_state: dict) -> None:
     print(
         render_position_summary(
             timestamp=loop_state["timestamp"],
-            strategy=STRATEGY_NAME,
+            strategy=runtime_context["strategy_name"],
             symbol=symbol,
             current_price=loop_state["price"],
             position=persistent_position,
@@ -479,47 +576,56 @@ def print_cycle_summary(loop_state: dict) -> None:
     )
 
 
-def run_cycle() -> None:
+def run_cycle(context: dict | None = None) -> None:
     global ACTIVE_LOOP_STATE, LAST_PROCESSED_CANDLE_TS
 
+    runtime_context = context or build_default_runtime_context()
     workspace = ensure_runtime_ready()
     prepare_import_path(workspace)
     current_time = datetime.now(timezone.utc)
     try:
         with workspace_cwd(workspace):
-            snapshot = fetch_recent_klines(symbol=SYMBOL.replace("-", ""), interval=TIMEFRAME)
+            snapshot = fetch_recent_klines(
+                symbol=runtime_context["symbol"].replace("-", ""),
+                interval=runtime_context["timeframe"],
+            )
             snapshot["timestamp"] = current_time.isoformat()
             latest_candle_ts = int(snapshot["latest_timestamp"])
-            remembered_candle_ts = read_last_processed_candle_ts()
+            remembered_candle_ts = read_last_processed_candle_ts(runtime_context)
+            in_memory_candle_ts = get_in_memory_last_processed_candle_ts(context)
             if remembered_candle_ts is not None:
-                LAST_PROCESSED_CANDLE_TS = remembered_candle_ts
-            if LAST_PROCESSED_CANDLE_TS is None:
-                LAST_PROCESSED_CANDLE_TS = latest_candle_ts
-                write_last_processed_candle_ts(latest_candle_ts)
-                print(f"[{current_time.astimezone(CST).isoformat()}] 初始化 5m 基线K线，不发单")
+                set_in_memory_last_processed_candle_ts(remembered_candle_ts, context)
+                in_memory_candle_ts = remembered_candle_ts
+            if in_memory_candle_ts is None:
+                set_in_memory_last_processed_candle_ts(latest_candle_ts, context)
+                write_last_processed_candle_ts(latest_candle_ts, runtime_context)
+                print(f"[{current_time.astimezone(CST).isoformat()}] 初始化 {runtime_context['timeframe']} 基线K线，不发单")
                 return
-            if LAST_PROCESSED_CANDLE_TS == latest_candle_ts:
-                print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 5m K 线")
+            if in_memory_candle_ts == latest_candle_ts:
+                print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 {runtime_context['timeframe']} K 线")
                 return
             loop_state = build_loop_state_from_candles(snapshot)
-            persistent_position = fetch_persistent_position(symbol=SYMBOL.replace("-", ""))
+            persistent_position = fetch_persistent_position(symbol=runtime_context["symbol"].replace("-", ""))
             normalized_action = normalize_intent_to_action(intent=loop_state["intent"], position=persistent_position)
             loop_state["current_position"] = persistent_position
             loop_state["action"] = normalized_action
             loop_state["last_action"] = normalized_action
             ACTIVE_LOOP_STATE = loop_state
-            emitted_loop_state = emit_strategy_signals(loop_state)
+            if context is None:
+                emitted_loop_state = emit_strategy_signals(None, loop_state)
+            else:
+                emitted_loop_state = emit_strategy_signals(runtime_context, loop_state)
             ACTIVE_LOOP_STATE = None
     except Exception as exc:
         print(f"[{current_time.astimezone(CST).isoformat()}] 行情获取失败，跳过本轮信号驱动: {exc.__class__.__name__}: {exc}")
         return
-    LAST_PROCESSED_CANDLE_TS = latest_candle_ts
-    write_last_processed_candle_ts(latest_candle_ts)
+    set_in_memory_last_processed_candle_ts(latest_candle_ts, context)
+    write_last_processed_candle_ts(latest_candle_ts, runtime_context)
     if isinstance(emitted_loop_state, dict):
         loop_state = emitted_loop_state
     else:
         loop_state = {**loop_state, "emitted": False}
-    print_cycle_summary(loop_state)
+    print_cycle_summary(loop_state, runtime_context)
 
 
 def main() -> None:
