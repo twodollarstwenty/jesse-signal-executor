@@ -1,0 +1,11 @@
+instances:
+  - id: ott_eth_5m
+    enabled: true
+    strategy: Ott2butKAMA
+    symbol: ETHUSDT
+    timeframe: 5m
+    capital_usdt: 1000
+    sizing:
+      mode: fixed_fraction
+      position_fraction: 0.2
+      leverage: 10
