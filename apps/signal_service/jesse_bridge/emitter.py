@@ -74,10 +74,13 @@ def notify_signal_if_supported(
         logger.exception("Failed to send WeCom notification for signal action=%s symbol=%s", action, symbol)
 
 
-def emit_signal(*, strategy: str, symbol: str, timeframe: str, candle_timestamp: int, action: str, payload: dict) -> None:
+def emit_signal(
+    *, instance_id: str, strategy: str, symbol: str, timeframe: str, candle_timestamp: int, action: str, payload: dict
+) -> None:
     signal_time = candle_timestamp_to_iso(candle_timestamp)
 
     insert_signal(
+        instance_id=instance_id,
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,

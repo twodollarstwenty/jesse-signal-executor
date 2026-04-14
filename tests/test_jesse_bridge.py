@@ -65,6 +65,7 @@ def test_build_signal_notification_message_uses_na_for_none_payload_values():
 @patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
 def test_emit_signal_calls_insert_signal(mock_insert):
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",
@@ -73,6 +74,7 @@ def test_emit_signal_calls_insert_signal(mock_insert):
         payload={"source": "jesse"},
     )
     mock_insert.assert_called_once_with(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",
@@ -82,10 +84,26 @@ def test_emit_signal_calls_insert_signal(mock_insert):
     )
 
 
+@patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
+def test_emit_signal_requires_instance_id_at_public_entrypoint(mock_insert):
+    emit_signal(
+        instance_id="ott_eth_5m",
+        strategy="Ott2butKAMA",
+        symbol="ETHUSDT",
+        timeframe="5m",
+        candle_timestamp=1712188800000,
+        action="open_long",
+        payload={"source": "jesse"},
+    )
+
+    assert mock_insert.call_args.kwargs["instance_id"] == "ott_eth_5m"
+
+
 @patch("apps.signal_service.jesse_bridge.emitter.send_text_message")
 @patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
 def test_emit_signal_sends_notification_for_supported_action(mock_insert, mock_send):
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",
@@ -111,6 +129,7 @@ def test_emit_signal_sends_notification_for_supported_action(mock_insert, mock_s
 @patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
 def test_emit_signal_sends_notification_for_close_action(mock_insert, mock_send):
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",
@@ -136,6 +155,7 @@ def test_emit_signal_sends_notification_for_close_action(mock_insert, mock_send)
 @patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
 def test_emit_signal_skips_notification_for_unsupported_action(mock_insert, mock_send):
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",
@@ -152,6 +172,7 @@ def test_emit_signal_skips_notification_for_unsupported_action(mock_insert, mock
 @patch("apps.signal_service.jesse_bridge.emitter.insert_signal")
 def test_emit_signal_suppresses_notification_failure(mock_insert, _mock_send):
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy="Ott2butKAMA",
         symbol="ETHUSDT",
         timeframe="5m",

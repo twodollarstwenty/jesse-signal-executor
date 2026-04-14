@@ -424,6 +424,7 @@ def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None
     side = current_position["side"] if current_position else None
 
     strategy.exchange = "Binance Perpetual Futures"
+    strategy.instance_id = runtime_context["instance_id"]
     strategy.symbol = runtime_context["symbol"]
     strategy.timeframe = runtime_context["timeframe"]
     strategy.buy = None
@@ -454,6 +455,7 @@ def drive_strategy_cycle(strategy, loop_state: dict, context: dict | None = None
         emitted = True
     elif action == "close_long":
         emit_signal(
+            instance_id=runtime_context["instance_id"],
             strategy=runtime_context["strategy_name"],
             symbol=runtime_context["symbol"].replace("-", ""),
             timeframe=runtime_context["timeframe"],
@@ -464,6 +466,7 @@ def drive_strategy_cycle(strategy, loop_state: dict, context: dict | None = None
         emitted = True
     elif action == "close_short":
         emit_signal(
+            instance_id=runtime_context["instance_id"],
             strategy=runtime_context["strategy_name"],
             symbol=runtime_context["symbol"].replace("-", ""),
             timeframe=runtime_context["timeframe"],

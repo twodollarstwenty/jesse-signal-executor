@@ -20,6 +20,7 @@ def test_signal_executor_flow_execute_path(monkeypatch):
     conn = connect()
     try:
         insert_signal(
+            instance_id="ott_eth_5m",
             strategy="Ott2butKAMA",
             symbol="ETHUSDT",
             timeframe="5m",

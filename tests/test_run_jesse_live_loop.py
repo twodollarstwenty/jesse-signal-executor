@@ -808,6 +808,50 @@ def test_emit_strategy_signals_does_not_share_last_action_between_contexts_witho
     assert result_b["emitted"] is True
 
 
+def test_drive_strategy_cycle_for_close_signal_forwards_instance_id(monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+    import apps.signal_service.jesse_bridge.emitter as emitter
+
+    class FakeStrategy:
+        pass
+
+    calls = []
+
+    monkeypatch.setattr(emitter, "insert_signal", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(emitter, "notify_signal_if_supported", lambda **kwargs: None)
+
+    emitted = module.drive_strategy_cycle(
+        FakeStrategy(),
+        {
+            "action": "close_long",
+            "candle_timestamp": 1712188800000,
+            "price": 2500.0,
+        },
+        {
+            "instance_id": "ott_eth_5m",
+            "strategy_name": "Ott2butKAMA",
+            "symbol": "ETH-USDT",
+            "timeframe": "5m",
+            "capital_usdt": 1000,
+            "sizing": {},
+            "paths": {},
+        },
+    )
+
+    assert emitted is True
+    assert calls == [
+        {
+            "instance_id": "ott_eth_5m",
+            "strategy": "Ott2butKAMA",
+            "symbol": "ETHUSDT",
+            "timeframe": "5m",
+            "signal_time": "2024-04-04T00:00:00Z",
+            "action": "close_long",
+            "payload": {"source": "jesse", "price": 2500.0, "position_side": "long", "qty": 1.0},
+        }
+    ]
+
+
 def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
     import scripts.run_jesse_live_loop as module
 
@@ -818,6 +862,7 @@ def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
 
     module.configure_strategy_for_signal_cycle(strategy)
 
+    assert strategy.instance_id == "dryrun"
     assert strategy.symbol == "ETH-USDT"
     assert strategy.exchange == "Binance Perpetual Futures"
     assert strategy.timeframe == "5m"

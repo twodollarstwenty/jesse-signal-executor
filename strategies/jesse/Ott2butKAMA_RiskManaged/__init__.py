@@ -123,6 +123,7 @@ class Ott2butKAMA_RiskManaged(Strategy):
 
     def go_long(self):
         emit_signal(
+            instance_id=self.instance_id,
             strategy="Ott2butKAMA_RiskManaged",
             symbol=self.symbol.replace('-', ''),
             timeframe=self.timeframe,
@@ -136,6 +137,7 @@ class Ott2butKAMA_RiskManaged(Strategy):
     def go_short(self):
         estimated_stop = self.ott.ott[-1] + (self.ott.ott[-1] * self.stop)
         emit_signal(
+            instance_id=self.instance_id,
             strategy="Ott2butKAMA_RiskManaged",
             symbol=self.symbol.replace('-', ''),
             timeframe=self.timeframe,
@@ -172,6 +174,7 @@ class Ott2butKAMA_RiskManaged(Strategy):
     def update_position(self):
         if self.is_long and self.cross_down:
             emit_signal(
+                instance_id=self.instance_id,
                 strategy="Ott2butKAMA_RiskManaged",
                 symbol=self.symbol.replace('-', ''),
                 timeframe=self.timeframe,
@@ -182,6 +185,7 @@ class Ott2butKAMA_RiskManaged(Strategy):
             self.liquidate()
         if self.is_short and self.cross_up:
             emit_signal(
+                instance_id=self.instance_id,
                 strategy="Ott2butKAMA_RiskManaged",
                 symbol=self.symbol.replace('-', ''),
                 timeframe=self.timeframe,

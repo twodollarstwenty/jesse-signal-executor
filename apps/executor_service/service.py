@@ -4,8 +4,9 @@ from apps.executor_service.state_machine import decide_transition, normalize_sid
 from apps.shared.db import connect
 
 
-def build_execution_payload(*, signal_id: int, symbol: str, status: str) -> dict:
+def build_execution_payload(*, instance_id: str, signal_id: int, symbol: str, status: str) -> dict:
     return {
+        "instance_id": instance_id,
         "signal_id": signal_id,
         "symbol": symbol,
         "side": "unknown",
@@ -15,9 +16,10 @@ def build_execution_payload(*, signal_id: int, symbol: str, status: str) -> dict
     }
 
 
-def build_position_payload(*, symbol: str, side: str, signal_payload: dict) -> dict:
+def build_position_payload(*, instance_id: str, symbol: str, side: str, signal_payload: dict) -> dict:
     if side == "flat":
         return {
+            "instance_id": instance_id,
             "symbol": symbol,
             "side": "flat",
             "qty": 0.0,
@@ -26,6 +28,7 @@ def build_position_payload(*, symbol: str, side: str, signal_payload: dict) -> d
         }
 
     return {
+        "instance_id": instance_id,
         "symbol": symbol,
         "side": side,
         "qty": float(signal_payload.get("qty", 1.0)),
@@ -34,16 +37,16 @@ def build_position_payload(*, symbol: str, side: str, signal_payload: dict) -> d
     }
 
 
-def fetch_current_side(*, cur, symbol: str) -> str | None:
+def fetch_current_side(*, cur, instance_id: str) -> str | None:
     cur.execute(
         """
         SELECT side
         FROM position_state
-        WHERE symbol = %s
+        WHERE instance_id = %s
         ORDER BY updated_at DESC, id DESC
         LIMIT 1
         """,
-        (symbol,),
+        (instance_id,),
     )
     row = cur.fetchone()
     return None if row is None else row[0]
@@ -52,10 +55,11 @@ def fetch_current_side(*, cur, symbol: str) -> str | None:
 def upsert_position_side(*, cur, position_payload: dict) -> None:
     cur.execute(
         """
-        INSERT INTO position_state (symbol, side, qty, entry_price, state_json)
-        VALUES (%s, %s, %s, %s, %s::jsonb)
+        INSERT INTO position_state (instance_id, symbol, side, qty, entry_price, state_json)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb)
         """,
         (
+            position_payload["instance_id"],
             position_payload["symbol"],
             position_payload["side"],
             position_payload["qty"],
@@ -72,7 +76,7 @@ def run_once() -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, symbol, action, payload_json
+                    SELECT id, instance_id, symbol, action, payload_json
                     FROM signal_events
                     WHERE status = 'new'
                     ORDER BY id ASC
@@ -84,16 +88,21 @@ def run_once() -> None:
                 if row is None:
                     return
 
-                signal_id, symbol, action, signal_payload = row
+                signal_id, instance_id, symbol, action, signal_payload = row
 
-                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (symbol,))
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s)::bigint)", (instance_id,))
 
-                current_side = fetch_current_side(cur=cur, symbol=symbol)
+                current_side = fetch_current_side(cur=cur, instance_id=instance_id)
                 normalized_current_side = normalize_side(current_side)
                 decision, next_state = decide_transition(current_side=current_side, signal_action=action)
 
                 if decision == "execute" and next_state != normalized_current_side:
-                    position_payload = build_position_payload(symbol=symbol, side=next_state, signal_payload=signal_payload or {})
+                    position_payload = build_position_payload(
+                        instance_id=instance_id,
+                        symbol=symbol,
+                        side=next_state,
+                        signal_payload=signal_payload or {},
+                    )
                     upsert_position_side(cur=cur, position_payload=position_payload)
 
                 cur.execute(
@@ -103,13 +112,19 @@ def run_once() -> None:
                 if cur.rowcount != 1:
                     return
 
-                payload = build_execution_payload(signal_id=signal_id, symbol=symbol, status=decision)
+                payload = build_execution_payload(
+                    instance_id=instance_id,
+                    signal_id=signal_id,
+                    symbol=symbol,
+                    status=decision,
+                )
                 cur.execute(
                     """
-                    INSERT INTO execution_events (signal_id, symbol, side, mode, status, detail_json)
-                    VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                    INSERT INTO execution_events (instance_id, signal_id, symbol, side, mode, status, detail_json)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
                     """,
                     (
+                        payload["instance_id"],
                         payload["signal_id"],
                         payload["symbol"],
                         payload["side"],

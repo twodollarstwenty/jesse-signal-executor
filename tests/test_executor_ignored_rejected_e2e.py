@@ -16,10 +16,10 @@ def _insert_position_side(*, symbol: str, side: str) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO position_state (symbol, side, qty, entry_price, state_json)
-                    VALUES (%s, %s, %s, %s, %s::jsonb)
+                    INSERT INTO position_state (instance_id, symbol, side, qty, entry_price, state_json)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb)
                     """,
-                    (symbol, side, 1, 2500, "{}"),
+                    ("ott_eth_5m", symbol, side, 1, 2500, "{}"),
                 )
     finally:
         conn.close()
@@ -79,11 +79,11 @@ def _fetch_latest_position_side(*, symbol: str) -> str | None:
                     """
                     SELECT side
                     FROM position_state
-                    WHERE symbol = %s
+                    WHERE instance_id = %s
                     ORDER BY updated_at DESC, id DESC
                     LIMIT 1
                     """,
-                    (symbol,),
+                    ("ott_eth_5m",),
                 )
                 row = cur.fetchone()
                 return None if row is None else row["side"]
@@ -116,6 +116,7 @@ def _run_close_scenario(
         _insert_position_side(symbol=symbol, side=current_side)
 
     insert_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -154,6 +155,7 @@ def test_open_long_ignored_when_current_side_is_long(monkeypatch):
     _insert_position_side(symbol=symbol, side="long")
 
     insert_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -196,6 +198,7 @@ def test_open_long_rejected_when_current_side_is_short(monkeypatch):
     _insert_position_side(symbol=symbol, side="short")
 
     insert_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -238,6 +241,7 @@ def test_open_short_ignored_when_current_side_is_short(monkeypatch):
     _insert_position_side(symbol=symbol, side="short")
 
     insert_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -280,6 +284,7 @@ def test_open_short_rejected_when_current_side_is_long(monkeypatch):
     _insert_position_side(symbol=symbol, side="long")
 
     insert_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,

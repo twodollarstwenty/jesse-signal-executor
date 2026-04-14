@@ -5,6 +5,7 @@ from apps.signal_service.writer import insert_signal
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--instance-id", required=True)
     parser.add_argument("--strategy", required=True)
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--timeframe", required=True)
@@ -17,6 +18,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     insert_signal(
+        instance_id=args.instance_id,
         strategy=args.strategy,
         symbol=args.symbol,
         timeframe=args.timeframe,

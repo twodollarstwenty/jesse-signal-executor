@@ -64,6 +64,7 @@ def test_bridge_execute_path_end_to_end():
     action = "open_long"
 
     emit_signal(
+        instance_id="ott_eth_5m",
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,

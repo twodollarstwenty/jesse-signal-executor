@@ -4,13 +4,16 @@ import json
 from apps.shared.db import connect
 
 
-def build_signal_hash(*, strategy: str, symbol: str, timeframe: str, signal_time: str, action: str) -> str:
-    payload = f"{strategy}|{symbol}|{timeframe}|{signal_time}|{action}"
+def build_signal_hash(*, instance_id: str, strategy: str, symbol: str, timeframe: str, signal_time: str, action: str) -> str:
+    payload = f"{instance_id}|{strategy}|{symbol}|{timeframe}|{signal_time}|{action}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def insert_signal(*, strategy: str, symbol: str, timeframe: str, signal_time: str, action: str, payload: dict) -> None:
+def insert_signal(
+    *, instance_id: str, strategy: str, symbol: str, timeframe: str, signal_time: str, action: str, payload: dict
+) -> None:
     signal_hash = build_signal_hash(
+        instance_id=instance_id,
         strategy=strategy,
         symbol=symbol,
         timeframe=timeframe,
@@ -23,11 +26,11 @@ def insert_signal(*, strategy: str, symbol: str, timeframe: str, signal_time: st
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO signal_events (strategy, symbol, timeframe, signal_time, action, signal_hash, status, payload_json)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                    INSERT INTO signal_events (instance_id, strategy, symbol, timeframe, signal_time, action, signal_hash, status, payload_json)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     ON CONFLICT (signal_hash) DO NOTHING
                     """,
-                    (strategy, symbol, timeframe, signal_time, action, signal_hash, "new", json.dumps(payload)),
+                    (instance_id, strategy, symbol, timeframe, signal_time, action, signal_hash, "new", json.dumps(payload)),
                 )
     finally:
         conn.close()
