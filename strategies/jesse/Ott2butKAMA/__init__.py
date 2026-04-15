@@ -1,4 +1,3 @@
-import talib
 from jesse import utils
 from jesse.strategies import Strategy, cached
 
@@ -55,9 +54,13 @@ class Ott2butKAMA(Strategy):
     @property
     @cached
     def chop(self):
-        return talib.RSI(self.candles[-960:, 2], self.hp['chop_rsi_len'])
-        # return jta.rsi(self.candles[-240:, 2], self.hp['chop_rsi_len'], sequential=True)
-        # return cta.cae(self.candles[-240:, 2], self.hp['chop_rsi_len'], sequential=True)
+        return build_feature_state(
+            closes=self.candles[-960:, 2],
+            ott_len=self.ott_len,
+            ott_percent=self.ott_percent,
+            chop_rsi_len=self.hp['chop_rsi_len'],
+            chop_bandwidth=self.hp['chop_bandwidth'],
+        )["chop_value"]
 
     @property
     @cached

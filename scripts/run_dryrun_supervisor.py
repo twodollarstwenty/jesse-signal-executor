@@ -98,7 +98,7 @@ def unique_strategies(instances: list[object]) -> list[str]:
 
 
 def start_instance_workers(*, repo_root: Path, runtime_root: Path, config_path: Path, instances: list[object]) -> None:
-    python_bin = repo_root / ".venv" / "bin" / "python"
+    python_bin = repo_root / "runtime" / "jesse_workspace" / ".venv" / "bin" / "python"
     worker_script = repo_root / "scripts" / "run_strategy_instance.py"
 
     for instance in instances:
@@ -123,10 +123,20 @@ def start_instance_workers(*, repo_root: Path, runtime_root: Path, config_path: 
                 "DRYRUN_INSTANCE_RUN_ONCE": "0",
             }
         )
+        if "HOST" not in env and "POSTGRES_HOST" in env:
+            env["HOST"] = env["POSTGRES_HOST"]
+        if "PORT" not in env and "POSTGRES_PORT" in env:
+            env["PORT"] = env["POSTGRES_PORT"]
+        if "DB_NAME" not in env and "POSTGRES_DB" in env:
+            env["DB_NAME"] = env["POSTGRES_DB"]
+        if "USERNAME" not in env and "POSTGRES_USER" in env:
+            env["USERNAME"] = env["POSTGRES_USER"]
+        if "PASSWORD" not in env and "POSTGRES_PASSWORD" in env:
+            env["PASSWORD"] = env["POSTGRES_PASSWORD"]
 
         with log_path.open("a") as log_file:
             process = subprocess.Popen(
-                [str(python_bin), str(worker_script)],
+                [str(python_bin), "-u", str(worker_script)],
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 env=env,

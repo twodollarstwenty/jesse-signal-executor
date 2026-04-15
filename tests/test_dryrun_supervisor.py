@@ -170,6 +170,12 @@ def test_start_instance_workers_spawns_worker_process_and_writes_instance_pid(mo
     repo_root.mkdir(parents=True)
     (repo_root / "scripts").mkdir(parents=True)
 
+    monkeypatch.setenv("POSTGRES_HOST", "127.0.0.1")
+    monkeypatch.setenv("POSTGRES_PORT", "5432")
+    monkeypatch.setenv("POSTGRES_DB", "jesse_db")
+    monkeypatch.setenv("POSTGRES_USER", "jesse_user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "password")
+
     calls: list[tuple[list[str], dict]] = []
 
     class FakeProcess:
@@ -194,8 +200,18 @@ def test_start_instance_workers_spawns_worker_process_and_writes_instance_pid(mo
     pid_path = runtime_root / "supervisor" / "pids" / "ott_eth_5m.pid"
     assert pid_path.exists()
     assert pid_path.read_text().strip() == "43210"
+    assert calls[0][0] == [
+        str(repo_root / "runtime" / "jesse_workspace" / ".venv" / "bin" / "python"),
+        "-u",
+        str(repo_root / "scripts" / "run_strategy_instance.py"),
+    ]
     assert calls[0][1]["DRYRUN_INSTANCE_ID"] == "ott_eth_5m"
     assert calls[0][1]["DRYRUN_INSTANCE_RUN_ONCE"] == "0"
+    assert calls[0][1]["HOST"] == "127.0.0.1"
+    assert calls[0][1]["PORT"] == "5432"
+    assert calls[0][1]["DB_NAME"] == "jesse_db"
+    assert calls[0][1]["USERNAME"] == "jesse_user"
+    assert calls[0][1]["PASSWORD"] == "password"
 
 
 def test_stop_instance_workers_terminates_process_and_removes_pid(monkeypatch, tmp_path: Path):

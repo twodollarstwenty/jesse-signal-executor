@@ -35,7 +35,12 @@ dryrun-debug:
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 -c "import os, psycopg2; conn = psycopg2.connect(host=os.getenv('POSTGRES_HOST', '127.0.0.1'), port=int(os.getenv('POSTGRES_PORT', '5432')), dbname=os.getenv('POSTGRES_DB', 'jesse_db'), user=os.getenv('POSTGRES_USER', 'jesse_user'), password=os.getenv('POSTGRES_PASSWORD', 'password')); cur = conn.cursor(); cur.execute('select signal_time, action, status from signal_events order by id desc limit 10'); print('signal_events:'); [print(row) for row in cur.fetchall()]; print(); cur.execute('select created_at, status, signal_id from execution_events order by id desc limit 10'); print('execution_events:'); [print(row) for row in cur.fetchall()]; cur.close(); conn.close()"
 
 dryrun-log:
-	tail -f runtime/dryrun/logs/jesse-dryrun.log
+	@logs="runtime/dryrun/instances/*/logs/worker.log"; \
+	if ls $$logs >/dev/null 2>&1; then \
+		tail -f $$logs; \
+	else \
+		echo "No dry-run worker logs found at $$logs"; \
+	fi
 
 dryrun-panel:
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 scripts/build_current_position_panel.py
@@ -45,16 +50,11 @@ dryrun-history:
 
 dryrun-reset:
 	@set -a && . .env && set +a && bash scripts/dryrun_stop.sh || true
-	@for _ in 1 2 3 4 5 6 7 8 9 10; do \
-		if ! ps -ax | grep "scripts/run_executor_loop.py\|scripts/run_jesse_dryrun_loop.py" | grep -v grep >/dev/null; then \
-			break; \
-		fi; \
-		sleep 0.5; \
-	done
-	@rm -f runtime/dryrun/pids/executor.pid runtime/dryrun/pids/jesse-dryrun.pid runtime/dryrun/last_action.txt runtime/dryrun/last_candle_ts.txt
+	@rm -f runtime/dryrun/supervisor/pids/*.pid
+	@rm -f runtime/dryrun/instances/*/logs/*.log
+	@rm -f runtime/dryrun/instances/*/heartbeats/*
+	@rm -f runtime/dryrun/instances/*/state/*
 	@set -a && . .env && set +a && . .venv/bin/activate && python3 -c "import os, psycopg2; conn = psycopg2.connect(host=os.getenv('POSTGRES_HOST','127.0.0.1'), port=int(os.getenv('POSTGRES_PORT','5432')), dbname=os.getenv('POSTGRES_DB','jesse_db'), user=os.getenv('POSTGRES_USER','jesse_user'), password=os.getenv('POSTGRES_PASSWORD','password')); cur = conn.cursor(); cur.execute('DELETE FROM execution_events'); cur.execute('DELETE FROM signal_events'); cur.execute('DELETE FROM position_state'); conn.commit(); cur.close(); conn.close(); print('已清空 signal_events / execution_events / position_state')"
-	@: > runtime/dryrun/logs/jesse-dryrun.log
-	@: > runtime/dryrun/logs/executor.log
 	@echo "已清空 dry-run 日志和状态文件"
 	@bash scripts/dryrun_status.sh
 
