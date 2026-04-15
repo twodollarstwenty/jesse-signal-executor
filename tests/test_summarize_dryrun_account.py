@@ -62,3 +62,86 @@ def test_compute_realized_pnl_from_executed_signal_cycle_for_short_position():
     pnl = compute_realized_pnl_from_signals(rows)
 
     assert pnl == 40.0
+
+
+def test_fetch_current_position_filters_by_instance_id(monkeypatch):
+    from scripts import summarize_dryrun_account as module
+
+    calls: list[tuple[str, tuple]] = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params):
+            calls.append((query, params))
+
+        def fetchone(self):
+            return ("long", 1.0, 2000.0)
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(module, "connect", lambda: FakeConnection())
+
+    position = module.fetch_current_position(symbol="ETHUSDT", instance_id="ott_eth_5m")
+
+    assert position == {"side": "long", "qty": 1.0, "entry_price": 2000.0}
+    assert "WHERE instance_id = %s AND symbol = %s" in calls[0][0]
+    assert calls[0][1] == ("ott_eth_5m", "ETHUSDT")
+
+
+def test_compute_realized_pnl_filters_by_instance_id(monkeypatch):
+    from scripts import summarize_dryrun_account as module
+
+    calls: list[tuple[str, tuple | None]] = []
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            calls.append((query, params))
+
+        def fetchall(self):
+            return [
+                ("open_long", {"price": 2000.0, "qty": 1.0}),
+                ("close_long", {"price": 2050.0, "qty": 1.0, "position_side": "long"}),
+            ]
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(module, "connect", lambda: FakeConnection())
+
+    pnl = module.compute_realized_pnl(instance_id="ott_eth_5m")
+
+    assert pnl == 50.0
+    assert "WHERE status = 'execute' AND instance_id = %s" in calls[0][0]
+    assert calls[0][1] == ("ott_eth_5m",)

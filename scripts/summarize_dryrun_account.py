@@ -70,23 +70,46 @@ def render_account_summary(*, initial_capital: float, realized_pnl: float, unrea
     return "\n".join(lines)
 
 
-def fetch_current_position(symbol: str = "ETHUSDT") -> dict | None:
-    conn = connect()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
+def fetch_current_position(symbol: str = "ETHUSDT", *, instance_id: str | None = None) -> dict | None:
+    def query_row(*, sql: str, params: tuple) -> tuple | None:
+        conn = connect()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, params)
+                return cur.fetchone()
+        finally:
+            conn.close()
+
+    row = None
+    can_use_instance_filter = instance_id is not None
+    if instance_id is not None:
+        try:
+            row = query_row(
+                sql="""
+                    SELECT side, qty, entry_price
+                    FROM position_state
+                    WHERE instance_id = %s AND symbol = %s
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                params=(instance_id, symbol),
+            )
+        except Exception as exc:
+            if 'instance_id' not in str(exc):
+                raise
+            can_use_instance_filter = False
+
+    if not can_use_instance_filter:
+        row = query_row(
+            sql="""
                 SELECT side, qty, entry_price
                 FROM position_state
                 WHERE symbol = %s
                 ORDER BY updated_at DESC, id DESC
                 LIMIT 1
                 """,
-                (symbol,),
-            )
-            row = cur.fetchone()
-    finally:
-        conn.close()
+            params=(symbol,),
+        )
 
     if row is None:
         return None
@@ -101,21 +124,46 @@ def fetch_current_price(symbol: str = "ETHUSDT") -> float:
     return float(snapshot["price"])
 
 
-def compute_realized_pnl() -> float:
-    conn = connect()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
+def compute_realized_pnl(*, instance_id: str | None = None) -> float:
+    def query_rows(*, sql: str, params: tuple | None = None) -> list[tuple[str, dict]]:
+        conn = connect()
+        try:
+            with conn, conn.cursor() as cur:
+                if params is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, params)
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    rows = []
+    can_use_instance_filter = instance_id is not None
+    if instance_id is not None:
+        try:
+            rows = query_rows(
+                sql="""
+                    SELECT action, payload_json
+                    FROM signal_events
+                    WHERE status = 'execute' AND instance_id = %s
+                    ORDER BY signal_time ASC, id ASC
+                    """,
+                params=(instance_id,),
+            )
+        except Exception as exc:
+            if 'instance_id' not in str(exc):
+                raise
+            can_use_instance_filter = False
+
+    if not can_use_instance_filter:
+        rows = query_rows(
+            sql="""
                 SELECT action, payload_json
                 FROM signal_events
                 WHERE status = 'execute'
                 ORDER BY signal_time ASC, id ASC
                 """
-            )
-            rows = cur.fetchall()
-    finally:
-        conn.close()
+        )
 
     return compute_realized_pnl_from_signals(rows)
 
@@ -124,14 +172,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--initial-capital", type=float, default=1000.0)
     parser.add_argument("--symbol", default="ETHUSDT")
+    parser.add_argument("--instance-id")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    position = fetch_current_position(symbol=args.symbol)
+    position = fetch_current_position(symbol=args.symbol, instance_id=args.instance_id)
     current_price = fetch_current_price(symbol=args.symbol)
-    realized_pnl = compute_realized_pnl()
+    realized_pnl = compute_realized_pnl(instance_id=args.instance_id)
     unrealized_pnl = compute_unrealized_pnl(position=position, current_price=current_price)
     current_equity = compute_current_equity(
         initial_capital=args.initial_capital,

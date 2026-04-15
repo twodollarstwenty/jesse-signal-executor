@@ -735,7 +735,11 @@ def test_emit_strategy_signals_allows_repeated_close_action_while_position_still
     monkeypatch.setattr(module, "build_strategy_instance", lambda: strategy)
     monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None: None)
     monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state: True)
-    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: {"side": "long", "qty": 1.0, "entry_price": 2166.33})
+    monkeypatch.setattr(
+        module,
+        "fetch_persistent_position",
+        lambda symbol, instance_id=None: {"side": "long", "qty": 1.0, "entry_price": 2166.33},
+    )
     module.LAST_EMITTED_ACTION = None
 
     result = module.emit_strategy_signals(None, loop_state=loop_state)
@@ -798,7 +802,7 @@ def test_emit_strategy_signals_does_not_share_last_action_between_contexts_witho
     monkeypatch.setattr(module, "build_strategy_instance", lambda context=None: next(strategies))
     monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None, context=None: None)
     monkeypatch.setattr(module, "drive_strategy_cycle", lambda current, loop_state, context=None: True)
-    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: None)
+    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol, instance_id=None: None)
     module.LAST_EMITTED_ACTION = None
 
     result_a = module.emit_strategy_signals(context_a, loop_state=loop_state)
@@ -850,6 +854,56 @@ def test_drive_strategy_cycle_for_close_signal_forwards_instance_id(monkeypatch:
             "payload": {"source": "jesse", "price": 2500.0, "position_side": "long", "qty": 1.0},
         }
     ]
+
+
+def test_emit_strategy_signals_passes_instance_id_to_position_lookup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    import scripts.run_jesse_live_loop as module
+
+    strategy = type("FakeStrategy", (), {})()
+    strategy.symbol = "ETH-USDT"
+    strategy.timeframe = "5m"
+    strategy.buy = None
+    strategy.sell = None
+
+    loop_state = {
+        "timestamp": "2026-04-05T21:33:20+08:00",
+        "price": 2516.8,
+        "candle_timestamp": 1712188800000,
+        "bias": "flat",
+        "position": None,
+        "action": "none",
+        "last_action": "none",
+    }
+    context = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "Ott2butKAMA",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000,
+        "sizing": {},
+        "paths": {
+            "last_candle": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_candle_ts.txt",
+            "last_action": tmp_path / "instances" / "ott_eth_5m" / "state" / "last_action.txt",
+        },
+    }
+    calls = []
+
+    monkeypatch.setattr(module, "build_strategy_instance", lambda context=None: strategy)
+    monkeypatch.setattr(module, "configure_strategy_for_signal_cycle", lambda current, loop_state=None, context=None: None)
+    monkeypatch.setattr(module, "read_last_emitted_action", lambda context=None: None)
+    monkeypatch.setattr(module, "get_in_memory_last_emitted_action", lambda context=None: None)
+    monkeypatch.setattr(module, "set_in_memory_last_emitted_action", lambda action, context=None: None)
+    monkeypatch.setattr(module, "write_last_emitted_action", lambda action, context=None: None)
+
+    def fake_fetch_persistent_position(*, symbol: str, instance_id: str | None = None):
+        calls.append((symbol, instance_id))
+        return None
+
+    monkeypatch.setattr(module, "fetch_persistent_position", fake_fetch_persistent_position)
+
+    module.emit_strategy_signals(context, loop_state=loop_state)
+
+    assert calls == [("ETHUSDT", "ott_eth_5m")]
 
 
 def test_configure_strategy_for_signal_cycle_sets_instance_state_only():
@@ -1223,7 +1277,11 @@ def test_print_cycle_summary_uses_persistent_position_for_display(monkeypatch, c
         "position": {"side": "long", "qty": 1.0, "entry_price": 2508.2},
     }
 
-    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol: {"side": "long", "qty": 5.12, "entry_price": 2450.0})
+    monkeypatch.setattr(
+        module,
+        "fetch_persistent_position",
+        lambda symbol, instance_id=None: {"side": "long", "qty": 5.12, "entry_price": 2450.0},
+    )
 
     module.print_cycle_summary(loop_state)
 

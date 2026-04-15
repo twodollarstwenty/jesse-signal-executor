@@ -92,6 +92,7 @@ class Ott2butKAMA(Strategy):
 
     def go_long(self):
         emit_signal(
+            instance_id=self.instance_id,
             strategy="Ott2butKAMA",
             symbol=self.symbol.replace('-', ''),
             timeframe=self.timeframe,
@@ -104,6 +105,7 @@ class Ott2butKAMA(Strategy):
 
     def go_short(self):
         emit_signal(
+            instance_id=self.instance_id,
             strategy="Ott2butKAMA",
             symbol=self.symbol.replace('-', ''),
             timeframe=self.timeframe,
@@ -140,6 +142,7 @@ class Ott2butKAMA(Strategy):
     def update_position(self):
         if self.is_long and self.cross_down:
             emit_signal(
+                instance_id=self.instance_id,
                 strategy="Ott2butKAMA",
                 symbol=self.symbol.replace('-', ''),
                 timeframe=self.timeframe,
@@ -150,6 +153,7 @@ class Ott2butKAMA(Strategy):
             self.liquidate()
         if self.is_short and self.cross_up:
             emit_signal(
+                instance_id=self.instance_id,
                 strategy="Ott2butKAMA",
                 symbol=self.symbol.replace('-', ''),
                 timeframe=self.timeframe,

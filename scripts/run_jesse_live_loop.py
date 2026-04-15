@@ -190,23 +190,46 @@ def render_position_summary(*, timestamp: str, strategy: str, symbol: str, curre
     )
 
 
-def fetch_persistent_position(*, symbol: str) -> dict | None:
-    conn = connect()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute(
-                """
+def fetch_persistent_position(*, symbol: str, instance_id: str | None = None) -> dict | None:
+    def query_row(*, sql: str, params: tuple) -> tuple | None:
+        conn = connect()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(sql, params)
+                return cur.fetchone()
+        finally:
+            conn.close()
+
+    row = None
+    can_use_instance_filter = instance_id is not None
+    if instance_id is not None:
+        try:
+            row = query_row(
+                sql="""
+                    SELECT side, qty, entry_price
+                    FROM position_state
+                    WHERE instance_id = %s AND symbol = %s
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                params=(instance_id, symbol),
+            )
+        except Exception as exc:
+            if 'instance_id' not in str(exc):
+                raise
+            can_use_instance_filter = False
+
+    if not can_use_instance_filter:
+        row = query_row(
+            sql="""
                 SELECT side, qty, entry_price
                 FROM position_state
                 WHERE symbol = %s
                 ORDER BY updated_at DESC, id DESC
                 LIMIT 1
                 """,
-                (symbol,),
-            )
-            row = cur.fetchone()
-    finally:
-        conn.close()
+            params=(symbol,),
+        )
 
     if row is None:
         return None
@@ -497,7 +520,10 @@ def emit_strategy_signals(context: dict | None, loop_state: dict | None = None) 
         remembered_action = read_last_emitted_action() or get_in_memory_last_emitted_action()
     else:
         remembered_action = read_last_emitted_action(runtime_context) or get_in_memory_last_emitted_action(runtime_context)
-    persistent_position = fetch_persistent_position(symbol=runtime_context["symbol"].replace("-", ""))
+    persistent_position = fetch_persistent_position(
+        symbol=runtime_context["symbol"].replace("-", ""),
+        instance_id=runtime_context["instance_id"],
+    )
     if action == "none":
         emitted = False
     elif action in {"close_long", "close_short"} and persistent_position is not None:
@@ -534,9 +560,9 @@ def emit_strategy_signals(context: dict | None, loop_state: dict | None = None) 
 def print_cycle_summary(loop_state: dict, context: dict | None = None) -> None:
     runtime_context = context or build_default_runtime_context()
     symbol = runtime_context["symbol"].replace("-", "")
-    persistent_position = fetch_persistent_position(symbol=symbol)
+    persistent_position = fetch_persistent_position(symbol=symbol, instance_id=runtime_context["instance_id"])
     initial_capital = float(runtime_context["capital_usdt"])
-    realized_pnl = compute_realized_pnl()
+    realized_pnl = compute_realized_pnl(instance_id=runtime_context["instance_id"])
     unrealized_pnl = compute_unrealized_pnl(position=persistent_position, current_price=loop_state["price"])
     current_equity = compute_current_equity(
         initial_capital=initial_capital,
