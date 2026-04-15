@@ -60,6 +60,7 @@ docker compose down
 - 项目虚拟环境 `.venv` 可用，供 `executor` 与 `scripts/check_heartbeat.py` 使用。
 - `runtime/jesse_workspace/.venv` 可用，供 `jesse-dryrun` 使用。
 - 以下命令默认在仓库根目录执行。
+- `configs/dryrun_instances.yaml` 是 dry-run supervisor 的实例配置源；只有 `enabled: true` 的实例会被启动为 worker。
 - `dryrun_start.sh` 默认按本机 PostgreSQL 连接启动：`127.0.0.1:5432`，数据库 `jesse_db`，用户 `jesse_user`，密码 `password`；若已设置对应环境变量，则以环境变量覆盖默认值。
 - `jesse-dryrun` 默认执行项目内正式信号生产入口，而不是 `scripts/verify_jesse_imports.py` 这类占位检查命令。
 - 正式入口会在执行前校验 `runtime/jesse_workspace`、策略同步产物与导入路径，然后通过现有 Jesse bridge 向 `signal_events` 写入真实信号。
@@ -70,11 +71,15 @@ docker compose down
 bash scripts/dryrun_start.sh
 ```
 
+- `dryrun_start.sh` 会由 supervisor 读取 `configs/dryrun_instances.yaml`，同步所需策略，并启动全部已启用实例与配套 executor 流程。
+
 查看状态：
 
 ```bash
 bash scripts/dryrun_status.sh
 ```
+
+- `dryrun_status.sh` 输出 supervisor 管理的总状态以及每个已启用实例的 worker 状态，便于区分单个实例故障与整体故障。
 
 状态含义：
 
@@ -87,6 +92,8 @@ bash scripts/dryrun_status.sh
 ```bash
 bash scripts/dryrun_stop.sh
 ```
+
+- `dryrun_stop.sh` 会由 supervisor 统一停止其管理的 dry-run worker，避免只停止单个实例后遗留其他进程。
 
 运行产物：
 
@@ -107,6 +114,7 @@ python3 scripts/summarize_dryrun_validation.py --minutes 60
 ```
 
 - 该摘要属于 dry-run 验证证据的一部分，也是评估是否可以考虑进入 tiny live 的必备依据之一。
+- 摘要会先输出窗口期内的总 signal/execution 计数，再为每个实例追加一行 `instance: <id> signal_count=<n> execution_count=<n>`，用于核对 supervisor 配置的实例是否都在产生预期流量。
 
 Smoke 验证：
 

@@ -9,6 +9,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from apps.shared.db import connect
+from apps.runtime.instance_config import load_instances
+
+
+DRYRUN_INSTANCES_CONFIG = ROOT / "configs" / "dryrun_instances.yaml"
 
 
 def parse_positive_minutes(raw: str) -> int:
@@ -25,6 +29,7 @@ def build_window_start(*, now: datetime, minutes: int) -> datetime:
 def fetch_summary(*, minutes: int) -> dict:
     now = datetime.now(timezone.utc)
     window_start = build_window_start(now=now, minutes=minutes)
+    enabled_instance_ids = {instance.id for instance in load_instances(DRYRUN_INSTANCES_CONFIG)}
     conn = connect()
     try:
         with conn, conn.cursor() as cur:
@@ -59,6 +64,37 @@ def fetch_summary(*, minutes: int) -> dict:
             )
             signal_status_counts = {status: count for status, count in cur.fetchall()}
 
+            cur.execute(
+                """
+                SELECT instance_id, COUNT(*)
+                FROM signal_events
+                WHERE signal_time >= %s
+                GROUP BY instance_id
+                """,
+                (window_start,),
+            )
+            instance_signal_counts = {instance_id: count for instance_id, count in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT instance_id, COUNT(*)
+                FROM execution_events
+                WHERE created_at >= %s
+                GROUP BY instance_id
+                """,
+                (window_start,),
+            )
+            instance_execution_counts = {instance_id: count for instance_id, count in cur.fetchall()}
+
+        instance_ids = enabled_instance_ids | set(instance_signal_counts) | set(instance_execution_counts)
+        instances = {
+            instance_id: {
+                "signal_count": instance_signal_counts.get(instance_id, 0),
+                "execution_count": instance_execution_counts.get(instance_id, 0),
+            }
+            for instance_id in instance_ids
+        }
+
         return {
             "window_minutes": minutes,
             "signal_count": signal_count,
@@ -66,6 +102,7 @@ def fetch_summary(*, minutes: int) -> dict:
             "signal_status_counts": signal_status_counts,
             "latest_signal_time": latest_signal_time,
             "latest_execution_time": latest_execution_time,
+            "instances": instances,
         }
     finally:
         conn.close()
@@ -85,6 +122,12 @@ def render_summary(summary: dict) -> str:
     latest_execution_time = summary["latest_execution_time"]
     lines.append(f"latest_signal_time: {latest_signal_time.isoformat() if latest_signal_time else 'none'}")
     lines.append(f"latest_execution_time: {latest_execution_time.isoformat() if latest_execution_time else 'none'}")
+
+    for instance_id, instance_summary in sorted(summary.get("instances", {}).items()):
+        lines.append(
+            f"instance: {instance_id} signal_count={instance_summary['signal_count']} execution_count={instance_summary['execution_count']}"
+        )
+
     return "\n".join(lines)
 
 
