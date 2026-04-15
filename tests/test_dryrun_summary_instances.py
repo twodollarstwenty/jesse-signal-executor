@@ -92,6 +92,9 @@ def test_fetch_summary_returns_instance_rollups(monkeypatch):
             return next(self._fetchall_results)
 
     class FakeConnection:
+        def __init__(self):
+            self._cursor = FakeCursor()
+
         def __enter__(self):
             return self
 
@@ -99,12 +102,13 @@ def test_fetch_summary_returns_instance_rollups(monkeypatch):
             return False
 
         def cursor(self):
-            return FakeCursor()
+            return self._cursor
 
         def close(self):
             pass
 
-    monkeypatch.setattr(module, "connect", lambda: FakeConnection())
+    connection = FakeConnection()
+    monkeypatch.setattr(module, "connect", lambda: connection)
     monkeypatch.setattr(
         module,
         "load_instances",
@@ -159,6 +163,9 @@ def test_render_summary_includes_enabled_instance_with_zero_activity(monkeypatch
             return next(self._fetchall_results)
 
     class FakeConnection:
+        def __init__(self):
+            self._cursor = FakeCursor()
+
         def __enter__(self):
             return self
 
@@ -166,12 +173,13 @@ def test_render_summary_includes_enabled_instance_with_zero_activity(monkeypatch
             return False
 
         def cursor(self):
-            return FakeCursor()
+            return self._cursor
 
         def close(self):
             pass
 
-    monkeypatch.setattr(module, "connect", lambda: FakeConnection())
+    connection = FakeConnection()
+    monkeypatch.setattr(module, "connect", lambda: connection)
     monkeypatch.setattr(
         module,
         "load_instances",

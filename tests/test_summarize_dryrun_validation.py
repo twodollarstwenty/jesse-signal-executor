@@ -101,3 +101,58 @@ def test_summary_script_runs_directly_without_pythonpath_env():
     assert completed.returncode == 0, completed.stderr
     assert "signal_count:" in completed.stdout
     assert "execution_count:" in completed.stdout
+
+
+def test_fetch_summary_falls_back_when_instance_id_columns_are_missing(monkeypatch):
+    from scripts import summarize_dryrun_validation as module
+
+    executed_queries = []
+    fetchall_calls = 0
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, query, params=None):
+            executed_queries.append(query)
+            if "SELECT instance_id, COUNT(*)" in query:
+                raise Exception('column "instance_id" does not exist')
+
+        def fetchone(self):
+            if "MAX(signal_time)" in executed_queries[-1]:
+                return (3, None)
+            if "MAX(created_at)" in executed_queries[-1]:
+                return (2, None)
+            raise AssertionError(f"unexpected fetchone query: {executed_queries[-1]}")
+
+        def fetchall(self):
+            nonlocal fetchall_calls
+            fetchall_calls += 1
+            if fetchall_calls == 1:
+                return [("execute", 2), ("ignored", 1)]
+            return []
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(module, "connect", lambda: FakeConnection())
+    monkeypatch.setattr(module, "load_instances", lambda path: [type("Instance", (), {"id": "ott_eth_5m"})()])
+
+    summary = module.fetch_summary(minutes=60)
+
+    assert summary["signal_count"] == 3
+    assert summary["execution_count"] == 2
+    assert summary["instances"] == {"ott_eth_5m": {"signal_count": 0, "execution_count": 0}}

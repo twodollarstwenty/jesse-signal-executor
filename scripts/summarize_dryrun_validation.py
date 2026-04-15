@@ -30,6 +30,28 @@ def fetch_summary(*, minutes: int) -> dict:
     now = datetime.now(timezone.utc)
     window_start = build_window_start(now=now, minutes=minutes)
     enabled_instance_ids = {instance.id for instance in load_instances(DRYRUN_INSTANCES_CONFIG)}
+
+    def instance_counts(*, table: str, time_column: str) -> dict[str, int]:
+        conn = connect()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT instance_id, COUNT(*)
+                    FROM {table}
+                    WHERE {time_column} >= %s
+                    GROUP BY instance_id
+                    """,
+                    (window_start,),
+                )
+                return {instance_id: count for instance_id, count in cur.fetchall()}
+        except Exception as exc:
+            if 'instance_id' not in str(exc):
+                raise
+            return {}
+        finally:
+            conn.close()
+
     conn = connect()
     try:
         with conn, conn.cursor() as cur:
@@ -64,28 +86,8 @@ def fetch_summary(*, minutes: int) -> dict:
             )
             signal_status_counts = {status: count for status, count in cur.fetchall()}
 
-            cur.execute(
-                """
-                SELECT instance_id, COUNT(*)
-                FROM signal_events
-                WHERE signal_time >= %s
-                GROUP BY instance_id
-                """,
-                (window_start,),
-            )
-            instance_signal_counts = {instance_id: count for instance_id, count in cur.fetchall()}
-
-            cur.execute(
-                """
-                SELECT instance_id, COUNT(*)
-                FROM execution_events
-                WHERE created_at >= %s
-                GROUP BY instance_id
-                """,
-                (window_start,),
-            )
-            instance_execution_counts = {instance_id: count for instance_id, count in cur.fetchall()}
-
+        instance_signal_counts = instance_counts(table="signal_events", time_column="signal_time")
+        instance_execution_counts = instance_counts(table="execution_events", time_column="created_at")
         instance_ids = enabled_instance_ids | set(instance_signal_counts) | set(instance_execution_counts)
         instances = {
             instance_id: {
