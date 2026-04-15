@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 
 
@@ -10,6 +11,7 @@ if str(ROOT) not in sys.path:
 
 from apps.runtime.instance_config import load_instances
 from scripts.run_jesse_live_loop import build_runtime_context, run_cycle
+from scripts.run_executor_loop import parse_positive_interval, write_heartbeat
 
 
 def main() -> None:
@@ -21,7 +23,22 @@ def main() -> None:
     instances = load_instances(config_path)
     instance = next(current for current in instances if current.id == instance_id)
     context = build_runtime_context(instance=instance.model_dump(), runtime_root=runtime_root)
-    run_cycle(context=context)
+    heartbeat_path = context["paths"]["heartbeat"]
+    run_once = os.getenv("DRYRUN_INSTANCE_RUN_ONCE", "0") == "1"
+    interval = parse_positive_interval(
+        os.getenv("DRYRUN_INSTANCE_POLL_INTERVAL_SECONDS", "10.0"),
+        env_name="DRYRUN_INSTANCE_POLL_INTERVAL_SECONDS",
+    )
+
+    if run_once:
+        run_cycle(context=context)
+        write_heartbeat(heartbeat_path)
+        return
+
+    while True:
+        run_cycle(context=context)
+        write_heartbeat(heartbeat_path)
+        time.sleep(interval)
 
 
 if __name__ == "__main__":

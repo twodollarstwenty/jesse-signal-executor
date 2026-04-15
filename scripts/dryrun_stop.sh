@@ -6,4 +6,6 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 export REPO_ROOT
 
-python3 "${REPO_ROOT}/scripts/run_dryrun_supervisor.py" stop "$@"
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+
+"${PYTHON_BIN}" "${REPO_ROOT}/scripts/run_dryrun_supervisor.py" stop "$@"
