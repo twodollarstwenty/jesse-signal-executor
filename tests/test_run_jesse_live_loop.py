@@ -76,6 +76,26 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
             "latest_timestamp": 1712189100000,
         },
     )
+    monkeypatch.setattr(
+        module,
+        "build_strategy_runtime_trace",
+        lambda context, loop_state, persistent_position: {
+            "market": {"candle_timestamp": 1712189100000, "price": 2524.1},
+            "box": {},
+            "grid": {},
+            "sizing": {},
+            "inventory": {},
+            "strategy_decision": {
+                "intent": "long",
+                "proposed_action": "open_long",
+                "should_emit_before_runtime_gates": True,
+                "reason_code": "entry_signal_emitted",
+                "reason_text": "test stub",
+                "signal_payload_preview": None,
+            },
+        },
+    )
+    monkeypatch.setattr(module, "insert_signal_decision", lambda **kwargs: None)
     monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: calls.append(f"emit:{Path.cwd()}"))
     module.LAST_PROCESSED_CANDLE_TS = 1712188800000
     monkeypatch.setenv("JESSE_LAST_CANDLE_FILE", str(tmp_path / "last_candle_ts.txt"))
@@ -86,6 +106,63 @@ def test_run_cycle_executes_strategy_step_without_resyncing_each_iteration(tmp_p
 
     assert calls == [f"emit:{workspace}"]
     assert Path.cwd() == original_cwd
+
+
+def test_run_cycle_prepares_runtime_routes_inside_workspace_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    calls = []
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2505.0, 2516.8, 2524.1],
+        "candles": [
+            [1712188200000, 2490.0, 2495.0, 2500.0, 2485.0, 100.0],
+            [1712188500000, 2495.0, 2500.0, 2505.0, 2490.0, 100.0],
+        ],
+        "latest_timestamp": 1712189100000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
+    monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
+    monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(module, "prepare_runtime_routes", lambda current: calls.append(("routes", Path.cwd(), current)))
+    monkeypatch.setattr(module, "prepare_runtime_candles", lambda **kwargs: calls.append(("candles", Path.cwd(), kwargs["symbol"])))
+    monkeypatch.setattr(module, "emit_strategy_signals", lambda context, loop_state=None: calls.append(("emit", Path.cwd())) or {**loop_state, "emitted": True})
+    monkeypatch.setattr(module, "build_strategy_runtime_trace", lambda context, loop_state, persistent_position: {
+        "market": {"candle_timestamp": 1712189100000, "price": 2524.1},
+        "box": {},
+        "grid": {},
+        "sizing": {},
+        "inventory": {},
+        "strategy_decision": {
+            "intent": "long",
+            "proposed_action": "open_long",
+            "should_emit_before_runtime_gates": True,
+            "reason_code": "entry_signal_emitted",
+            "reason_text": "test stub",
+            "signal_payload_preview": None,
+        },
+    })
+    monkeypatch.setattr(module, "insert_signal_decision", lambda **kwargs: None)
+    monkeypatch.setattr(module, "fetch_persistent_position", lambda symbol, instance_id=None: None)
+    monkeypatch.setattr(module, "read_last_processed_candle_ts", lambda context=None: 1712188800000)
+    monkeypatch.setattr(module, "get_in_memory_last_processed_candle_ts", lambda context=None: 1712188800000)
+    monkeypatch.setattr(module, "set_in_memory_last_processed_candle_ts", lambda value, context=None: None)
+    monkeypatch.setattr(module, "write_last_processed_candle_ts", lambda value, context=None: None)
+    monkeypatch.setattr(module, "read_last_emitted_action", lambda context=None: None)
+    monkeypatch.setattr(module, "get_in_memory_last_emitted_action", lambda context=None: None)
+    monkeypatch.setattr(module, "set_in_memory_last_emitted_action", lambda action, context=None: None)
+    monkeypatch.setattr(module, "write_last_emitted_action", lambda action, context=None: None)
+    monkeypatch.setattr(module, "print_cycle_summary", lambda loop_state, context=None: None)
+
+    module.run_cycle()
+
+    assert calls[0] == ("routes", workspace, workspace)
+    assert calls[1] == ("candles", workspace, "ETH-USDT")
 
 
 def test_run_cycle_uses_context_paths_for_last_candle_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -118,6 +195,26 @@ def test_run_cycle_uses_context_paths_for_last_candle_state(tmp_path: Path, monk
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "build_strategy_runtime_trace",
+        lambda context, loop_state, persistent_position: {
+            "market": {"candle_timestamp": 1712189100000, "price": 2524.1},
+            "box": {},
+            "grid": {},
+            "sizing": {},
+            "inventory": {},
+            "strategy_decision": {
+                "intent": "long",
+                "proposed_action": "open_long",
+                "should_emit_before_runtime_gates": True,
+                "reason_code": "entry_signal_emitted",
+                "reason_text": "test stub",
+                "signal_payload_preview": None,
+            },
+        },
+    )
+    monkeypatch.setattr(module, "insert_signal_decision", lambda **kwargs: None)
     monkeypatch.setattr(
         module,
         "emit_strategy_signals",
@@ -294,6 +391,26 @@ def test_run_cycle_evaluates_once_when_new_candle_arrives(tmp_path: Path, monkey
     monkeypatch.setattr(module, "ensure_runtime_ready", lambda: workspace)
     monkeypatch.setattr(module, "prepare_import_path", lambda current: None)
     monkeypatch.setattr(module, "fetch_recent_klines", lambda symbol, interval="5m", limit=50: snapshot)
+    monkeypatch.setattr(
+        module,
+        "build_strategy_runtime_trace",
+        lambda context, loop_state, persistent_position: {
+            "market": {"candle_timestamp": 1712189100000, "price": 2524.1},
+            "box": {},
+            "grid": {},
+            "sizing": {},
+            "inventory": {},
+            "strategy_decision": {
+                "intent": "long",
+                "proposed_action": "open_long",
+                "should_emit_before_runtime_gates": True,
+                "reason_code": "entry_signal_emitted",
+                "reason_text": "test stub",
+                "signal_payload_preview": None,
+            },
+        },
+    )
+    monkeypatch.setattr(module, "insert_signal_decision", lambda **kwargs: None)
     monkeypatch.setattr(
         module,
         "emit_strategy_signals",
@@ -988,6 +1105,36 @@ def test_build_strategy_instance_uses_configured_strategy_class_name(tmp_path: P
     sys.path[:] = original_sys_path
 
 
+def test_build_strategy_instance_runs_strategy_initializer_for_runtime_classes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    runtime_package = workspace / "strategies" / "CustomStrategy"
+    repo_strategies = tmp_path / "strategies" / "jesse"
+    runtime_package.mkdir(parents=True)
+    repo_strategies.mkdir(parents=True)
+    (runtime_package / "__init__.py").write_text(
+        "class Base:\n"
+        "    def __init__(self):\n"
+        "        self._cached_methods = {}\n"
+        "        self.initialized = True\n\n"
+        "class CustomStrategy(Base):\n"
+        "    pass\n"
+    )
+
+    original_sys_path = sys.path.copy()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    module.prepare_import_path(workspace)
+    sys.modules.pop("CustomStrategy", None)
+
+    strategy = module.build_strategy_instance({"strategy_name": "CustomStrategy"})
+
+    assert strategy.initialized is True
+    assert strategy._cached_methods == {}
+
+    sys.path[:] = original_sys_path
+
+
 def test_configure_strategy_for_signal_cycle_supports_read_only_property_classes():
     import scripts.run_jesse_live_loop as module
 
@@ -1031,6 +1178,152 @@ def test_configure_strategy_for_signal_cycle_supports_read_only_property_classes
     assert strategy.cross_up is False
     assert strategy.is_long is False
     assert strategy.is_short is False
+
+
+def test_configure_strategy_for_signal_cycle_sets_balance_and_candles_from_loop_state():
+    import scripts.run_jesse_live_loop as module
+
+    class FakeStrategy:
+        @property
+        def balance(self):
+            return 0.0
+
+        @property
+        def candles(self):
+            return []
+
+    strategy = FakeStrategy()
+    loop_state = {
+        "candle_timestamp": 1712188800000,
+        "price": 2500.0,
+        "action": "none",
+        "current_position": None,
+        "candles": [
+            [1712188200000, 2490.0, 2495.0, 2500.0, 2485.0, 100.0],
+            [1712188500000, 2495.0, 2500.0, 2505.0, 2490.0, 110.0],
+        ],
+    }
+    context = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "StandardGrid_LightMartingale_v1",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000.0,
+        "sizing": {},
+        "paths": {},
+    }
+
+    module.configure_strategy_for_signal_cycle(strategy, loop_state=loop_state, context=context)
+
+    assert strategy.balance == 1000.0
+    assert strategy.candles == loop_state["candles"]
+
+
+def test_build_strategy_runtime_trace_initializes_default_hyperparameters_for_strategy():
+    import scripts.run_jesse_live_loop as module
+
+    workspace = module.build_workspace_path()
+    module.prepare_import_path(workspace)
+    context = {
+        "instance_id": "ott_eth_5m",
+        "strategy_name": "StandardGrid_LightMartingale_v1",
+        "symbol": "ETH-USDT",
+        "timeframe": "5m",
+        "capital_usdt": 1000.0,
+        "sizing": {},
+        "paths": {},
+    }
+    loop_state = {
+        "timestamp": "2026-05-01T00:00:00+00:00",
+        "candle_timestamp": 1712188800000,
+        "price": 2500.0,
+        "intent": "flat",
+        "action": "none",
+        "last_action": "none",
+        "current_position": None,
+        "candles": [
+            [1712187600000, 2480.0, 2485.0, 2490.0, 2475.0, 100.0],
+            [1712187900000, 2485.0, 2490.0, 2495.0, 2480.0, 100.0],
+            [1712188200000, 2490.0, 2495.0, 2500.0, 2485.0, 100.0],
+            [1712188500000, 2495.0, 2500.0, 2505.0, 2490.0, 100.0],
+            [1712188800000, 2500.0, 2500.0, 2510.0, 2490.0, 100.0],
+        ],
+    }
+
+    trace = module.build_strategy_runtime_trace(context, loop_state, None)
+
+    assert "strategy_decision" in trace
+    assert trace["sizing"]["base_level_notional_pct"] is not None
+
+
+def test_prepare_runtime_routes_loads_workspace_routes_into_jesse_router(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    workspace = tmp_path / "runtime" / "jesse_workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "routes.py").write_text(
+        "routes = [{'exchange': 'Binance Perpetual Futures', 'strategy': 'StandardGrid_LightMartingale_v1', 'symbol': 'ETH-USDT', 'timeframe': '5m'}]\n"
+    )
+
+    class FakeRouter:
+        def __init__(self):
+            self.calls = []
+
+        def initiate(self, routes, data_routes=None):
+            self.calls.append((routes, data_routes))
+
+    fake_router = FakeRouter()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setitem(sys.modules, "jesse.routes", type("RoutesModule", (), {"router": fake_router})())
+    sys.modules.pop("routes", None)
+
+    module.prepare_runtime_routes(workspace)
+
+    assert fake_router.calls == [(
+        [{"exchange": "Binance Perpetual Futures", "strategy": "StandardGrid_LightMartingale_v1", "symbol": "ETH-USDT", "timeframe": "5m"}],
+        [],
+    )]
+
+
+def test_prepare_runtime_candles_initializes_store_and_injects_snapshot_candles(monkeypatch: pytest.MonkeyPatch):
+    import scripts.run_jesse_live_loop as module
+
+    class FakeCandles:
+        def __init__(self):
+            self.init_calls = []
+            self.mark_calls = 0
+
+        def init_storage(self, bucket_size: int = 1000):
+            self.init_calls.append(bucket_size)
+
+        def mark_all_as_initiated(self):
+            self.mark_calls += 1
+
+    fake_candles = FakeCandles()
+    fake_store = type("FakeStore", (), {"candles": fake_candles, "reset": lambda self: None})()
+    batch_calls = []
+
+    def fake_batch_add_candle(candles, exchange, symbol, timeframe, with_generation=False):
+        batch_calls.append((candles, exchange, symbol, timeframe, with_generation))
+
+    fake_candle_service = type("CandleServiceModule", (), {"batch_add_candle": staticmethod(fake_batch_add_candle)})()
+
+    monkeypatch.setitem(sys.modules, "jesse.store", type("StoreModule", (), {"store": fake_store})())
+    monkeypatch.setitem(sys.modules, "jesse.services", type("ServicesModule", (), {"candle_service": fake_candle_service})())
+    monkeypatch.setitem(sys.modules, "jesse.services.candle_service", fake_candle_service)
+
+    module.prepare_runtime_candles(
+        exchange="Binance Perpetual Futures",
+        symbol="ETH-USDT",
+        candles=[
+            [1712188200000, 2490.0, 2495.0, 2500.0, 2485.0, 100.0],
+            [1712188500000, 2495.0, 2500.0, 2505.0, 2490.0, 100.0],
+        ],
+    )
+
+    assert fake_candles.init_calls == [1000]
+    assert fake_candles.mark_calls == 1
+    assert batch_calls[0][1:] == ("Binance Perpetual Futures", "ETH-USDT", "1m", False)
 
 
 def test_drive_strategy_cycle_works_when_runtime_properties_touch_exchange(monkeypatch: pytest.MonkeyPatch):
@@ -1128,6 +1421,26 @@ def test_build_loop_state_from_candles_uses_recent_close_prices():
     assert state["price"] == 2524.1
     assert state["timestamp"] == "2026-04-05T21:33:20+08:00"
     assert state["action"] in {"open_long", "open_short", "close_long", "close_short", "none"}
+
+
+def test_build_loop_state_from_candles_preserves_snapshot_candles():
+    from scripts.run_jesse_live_loop import build_loop_state_from_candles
+
+    candles = [
+        [1712188200000, 2490.0, 2495.0, 2500.0, 2485.0, 100.0],
+        [1712188500000, 2495.0, 2500.0, 2505.0, 2490.0, 100.0],
+    ]
+    snapshot = {
+        "symbol": "ETHUSDT",
+        "close_prices": [2495.0, 2500.0],
+        "candles": candles,
+        "latest_timestamp": 1712188500000,
+        "timestamp": "2026-04-05T21:33:20+08:00",
+    }
+
+    state = build_loop_state_from_candles(snapshot)
+
+    assert state["candles"] == candles
 
 
 def test_render_position_summary_contains_floating_pnl_fields():

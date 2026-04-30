@@ -13,6 +13,24 @@ CREATE TABLE IF NOT EXISTS signal_events (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS signal_decision_events (
+  id BIGSERIAL PRIMARY KEY,
+  instance_id TEXT NOT NULL DEFAULT 'dryrun',
+  strategy TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  signal_time TIMESTAMPTZ NOT NULL,
+  candle_timestamp BIGINT NOT NULL,
+  decision_hash TEXT NOT NULL UNIQUE,
+  intent TEXT NOT NULL,
+  action TEXT NOT NULL,
+  emitted BOOLEAN NOT NULL,
+  decision_status TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS execution_events (
   id BIGSERIAL PRIMARY KEY,
   signal_id BIGINT NOT NULL REFERENCES signal_events(id) ON DELETE RESTRICT,

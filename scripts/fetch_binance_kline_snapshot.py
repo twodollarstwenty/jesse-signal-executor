@@ -6,6 +6,10 @@ def parse_klines_response(payload: list[list]) -> dict:
     return {
         "close_prices": [float(row[4]) for row in payload],
         "latest_timestamp": int(payload[-1][0]) if payload else 0,
+        "candles": [
+            [int(row[0]), float(row[1]), float(row[4]), float(row[2]), float(row[3]), float(row[5])]
+            for row in payload
+        ],
     }
 
 

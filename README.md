@@ -41,31 +41,31 @@
 最小启动流程：
 
 ```bash
-cp .env.example .env
-# 按实际环境修改 .env
-
-source .venv/bin/activate
-python3 scripts/init_db.py
-
-set -a && source .env && set +a
+PGPASSWORD=password psql -h 127.0.0.1 -p 5432 -U jesse_user -d jesse_db -f db/init.sql
 bash scripts/dryrun_start.sh
 bash scripts/dryrun_status.sh
-python3 scripts/summarize_dryrun_validation.py --minutes 60
 ```
 
-查看日志：
+查看 worker 日志：
 
 ```bash
 python3 - <<'PY'
 from pathlib import Path
-for name in ["executor.log", "jesse-dryrun.log"]:
-    path = Path("runtime/dryrun/logs") / name
-    print(f"\n===== {name} =====")
-    if path.exists():
-        print(path.read_text()[-4000:])
-    else:
-        print("missing")
+path = Path("runtime/dryrun/instances/ott_eth_5m/logs/worker.log")
+print(path.read_text()[-4000:] if path.exists() else "missing")
 PY
+```
+
+验证 decision trace 是否写入数据库：
+
+```bash
+PGPASSWORD=password psql -h 127.0.0.1 -p 5432 -U jesse_user -d jesse_db -c "select id, instance_id, strategy, symbol, timeframe, signal_time, candle_timestamp, intent, action, emitted, decision_status, reason_code from signal_decision_events order by id desc limit 20;"
+```
+
+只看总数：
+
+```bash
+PGPASSWORD=password psql -h 127.0.0.1 -p 5432 -U jesse_user -d jesse_db -c "select count(*) from signal_decision_events;"
 ```
 
 停止：

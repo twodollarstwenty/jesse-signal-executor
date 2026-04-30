@@ -2,6 +2,7 @@ import os
 import sys
 from datetime import datetime, timezone, timedelta
 from importlib import import_module
+import importlib.util
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -26,6 +27,7 @@ if "USERNAME" not in os.environ and "POSTGRES_USER" in os.environ:
 from scripts.fetch_binance_kline_snapshot import fetch_recent_klines
 from apps.shared.db import connect
 from apps.runtime.instance_runtime import build_instance_paths
+from apps.signal_service.writer import insert_signal_decision
 from scripts.summarize_dryrun_account import compute_current_equity, compute_realized_pnl, compute_unrealized_pnl
 from scripts.build_current_position_panel import compute_position_qty
 from strategies.shared.ott2butkama_core import evaluate_direction
@@ -349,6 +351,7 @@ def build_loop_state_from_candles(snapshot: dict) -> dict:
         "intent": intent,
         "action": "none",
         "last_action": "none",
+        "candles": snapshot.get("candles", []),
     }
 
 
@@ -402,6 +405,41 @@ def prepare_import_path(workspace: Path) -> None:
     sys.path[:] = desired_paths + existing_paths
 
 
+def prepare_runtime_routes(workspace: Path) -> None:
+    try:
+        from jesse.routes import router
+    except ModuleNotFoundError:
+        return
+
+    routes_path = workspace / "routes.py"
+    spec = importlib.util.spec_from_file_location("runtime_workspace_routes", routes_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load routes module from {routes_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    router.initiate(getattr(module, "routes", []), [])
+
+
+def prepare_runtime_candles(*, exchange: str, symbol: str, candles: list[list]) -> None:
+    if not candles:
+        return
+
+    from jesse.store import store
+    from jesse.services import candle_service
+
+    store.reset()
+    store.candles.init_storage()
+    try:
+        import numpy as np
+
+        payload = np.asarray(candles, dtype=float)
+    except ModuleNotFoundError:
+        payload = candles
+
+    candle_service.batch_add_candle(payload, exchange, symbol, "1m", with_generation=False)
+    store.candles.mark_all_as_initiated()
+
+
 @contextmanager
 def workspace_cwd(workspace: Path):
     previous_cwd = Path.cwd()
@@ -436,7 +474,125 @@ def build_strategy_instance(context: dict | None = None):
     strategy_module = import_module(strategy_name)
     strategy_class = getattr(strategy_module, strategy_name)
 
-    return object.__new__(strategy_class)
+    try:
+        return strategy_class()
+    except TypeError:
+        return object.__new__(strategy_class)
+
+
+def build_strategy_runtime_trace(context: dict, loop_state: dict, persistent_position: dict | None) -> dict:
+    strategy = build_strategy_instance(context)
+    if getattr(strategy, "hp", None) is None and hasattr(strategy, "hyperparameters"):
+        strategy.hp = {
+            item["name"]: item.get("default")
+            for item in strategy.hyperparameters()
+            if isinstance(item, dict) and "name" in item
+        }
+    strategy._loop_state = loop_state
+    configure_strategy_for_signal_cycle(strategy, loop_state=loop_state, context=context)
+    builder = getattr(strategy, "build_runtime_decision_trace", None)
+    if callable(builder):
+        return builder(current_position=persistent_position)
+
+    intent = loop_state.get("intent", loop_state.get("bias", "flat"))
+    action = loop_state.get("action", "none")
+    return {
+        "market": {
+            "candle_timestamp": int(loop_state["candle_timestamp"]),
+            "price": float(loop_state["price"]),
+        },
+        "box": {},
+        "grid": {},
+        "sizing": {},
+        "inventory": {
+            "current_position_side": None if persistent_position is None else persistent_position.get("side"),
+            "current_position_qty": None if persistent_position is None else persistent_position.get("qty"),
+            "current_position_entry_price": None if persistent_position is None else persistent_position.get("entry_price"),
+            "active_slices": [],
+            "slice_count": 0,
+            "pending_inventory_release": False,
+        },
+        "strategy_decision": {
+            "intent": intent,
+            "proposed_action": action,
+            "should_emit_before_runtime_gates": action != "none",
+            "reason_code": "entry_signal_emitted" if action != "none" else "box_not_confirmed",
+            "reason_text": "runtime fallback trace",
+            "signal_payload_preview": None,
+        },
+    }
+
+
+def classify_runtime_decision(
+    *,
+    proposed_action: str,
+    should_emit_before_runtime_gates: bool,
+    strategy_reason_code: str,
+    persistent_position: dict | None,
+    remembered_action: str | None,
+) -> dict:
+    if not should_emit_before_runtime_gates or proposed_action == "none":
+        return {
+            "final_action": "none",
+            "emitted": False,
+            "decision_status": "noop",
+            "reason_code": strategy_reason_code,
+        }
+    if proposed_action in {"close_long", "close_short"} and persistent_position is None:
+        return {
+            "final_action": "none",
+            "emitted": False,
+            "decision_status": "skipped_no_position",
+            "reason_code": "no_position_to_close",
+        }
+    if remembered_action == proposed_action:
+        return {
+            "final_action": "none",
+            "emitted": False,
+            "decision_status": "suppressed_duplicate",
+            "reason_code": "duplicate_action",
+        }
+    return {
+        "final_action": proposed_action,
+        "emitted": True,
+        "decision_status": "emitted",
+        "reason_code": strategy_reason_code,
+    }
+
+
+def persist_runtime_decision_trace(
+    *,
+    context: dict,
+    loop_state: dict,
+    trace: dict,
+    outcome: dict,
+    persistent_position: dict | None,
+    remembered_action: str | None,
+) -> None:
+    insert_signal_decision(
+        instance_id=context["instance_id"],
+        strategy=context["strategy_name"],
+        symbol=context["symbol"].replace("-", ""),
+        timeframe=context["timeframe"],
+        signal_time=loop_state["timestamp"],
+        candle_timestamp=int(loop_state["candle_timestamp"]),
+        intent=trace["strategy_decision"]["intent"],
+        action=outcome["final_action"],
+        emitted=outcome["emitted"],
+        decision_status=outcome["decision_status"],
+        reason_code=outcome["reason_code"],
+        payload={
+            **trace,
+            "runtime": {
+                "persistent_position": persistent_position,
+                "remembered_action": remembered_action,
+                "final_action": outcome["final_action"],
+                "emitted": outcome["emitted"],
+                "decision_status": outcome["decision_status"],
+                "reason_code": outcome["reason_code"],
+            },
+        },
+    )
 
 
 def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None, context: dict | None = None) -> None:
@@ -453,6 +609,8 @@ def configure_strategy_for_signal_cycle(strategy, loop_state: dict | None = None
     strategy.buy = None
     strategy.sell = None
     strategy.liquidate = lambda: None
+    _set_runtime_attr(strategy, "balance", float(runtime_context.get("capital_usdt", 1000.0)))
+    _set_runtime_attr(strategy, "candles", loop_state.get("candles", []))
     _set_runtime_attr(strategy, "pos_size", 1.0)
     _set_runtime_attr(strategy, "current_candle", [loop_state["candle_timestamp"], price, price, price + 10.0, price - 10.0, 100.0])
     _set_runtime_attr(strategy, "price", price)
@@ -614,11 +772,17 @@ def run_cycle(context: dict | None = None) -> None:
     current_time = datetime.now(timezone.utc)
     try:
         with workspace_cwd(workspace):
+            prepare_runtime_routes(workspace)
             snapshot = fetch_recent_klines(
                 symbol=runtime_context["symbol"].replace("-", ""),
                 interval=runtime_context["timeframe"],
             )
             snapshot["timestamp"] = current_time.isoformat()
+            prepare_runtime_candles(
+                exchange="Binance Perpetual Futures",
+                symbol=runtime_context["symbol"],
+                candles=snapshot.get("candles", []),
+            )
             latest_candle_ts = int(snapshot["latest_timestamp"])
             remembered_candle_ts = read_last_processed_candle_ts(runtime_context)
             in_memory_candle_ts = get_in_memory_last_processed_candle_ts(context)
@@ -634,11 +798,34 @@ def run_cycle(context: dict | None = None) -> None:
                 print(f"[{current_time.astimezone(CST).isoformat()}] 等待新 {runtime_context['timeframe']} K 线")
                 return
             loop_state = build_loop_state_from_candles(snapshot)
-            persistent_position = fetch_persistent_position(symbol=runtime_context["symbol"].replace("-", ""))
+            persistent_position = fetch_persistent_position(
+                symbol=runtime_context["symbol"].replace("-", ""),
+                instance_id=runtime_context["instance_id"],
+            )
             normalized_action = normalize_intent_to_action(intent=loop_state["intent"], position=persistent_position)
             loop_state["current_position"] = persistent_position
             loop_state["action"] = normalized_action
             loop_state["last_action"] = normalized_action
+            remembered_action = read_last_emitted_action(runtime_context) or get_in_memory_last_emitted_action(runtime_context)
+            trace = build_strategy_runtime_trace(runtime_context, loop_state, persistent_position)
+            strategy_decision = trace["strategy_decision"]
+            outcome = classify_runtime_decision(
+                proposed_action=strategy_decision["proposed_action"],
+                should_emit_before_runtime_gates=bool(strategy_decision["should_emit_before_runtime_gates"]),
+                strategy_reason_code=strategy_decision["reason_code"],
+                persistent_position=persistent_position,
+                remembered_action=remembered_action,
+            )
+            loop_state["action"] = outcome["final_action"]
+            loop_state["last_action"] = outcome["final_action"]
+            persist_runtime_decision_trace(
+                context=runtime_context,
+                loop_state=loop_state,
+                trace=trace,
+                outcome=outcome,
+                persistent_position=persistent_position,
+                remembered_action=remembered_action,
+            )
             ACTIVE_LOOP_STATE = loop_state
             if context is None:
                 emitted_loop_state = emit_strategy_signals(None, loop_state)

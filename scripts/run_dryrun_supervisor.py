@@ -26,6 +26,20 @@ def sync_strategies(strategy_names: list[str]) -> None:
     sync_strategies_impl(strategy_names)
 
 
+def sync_runtime_routes(instances: list[object]) -> None:
+    routes_path = ROOT / "runtime" / "jesse_workspace" / "routes.py"
+    route_items = [
+        {
+            "exchange": "Binance Perpetual Futures",
+            "strategy": instance.strategy,
+            "symbol": instance.symbol.replace("USDT", "-USDT") if "-" not in instance.symbol and instance.symbol.endswith("USDT") else instance.symbol,
+            "timeframe": instance.timeframe,
+        }
+        for instance in instances
+    ]
+    routes_path.write_text(f"routes = {route_items!r}\n")
+
+
 def build_supervisor_status(*, runtime_root: Path, instance_health: dict[str, dict]) -> dict:
     supervisor_started = build_supervisor_pid_path(runtime_root).exists()
     running = sum(1 for item in instance_health.values() if item["state"] == "running")
@@ -101,6 +115,8 @@ def start_instance_workers(*, repo_root: Path, runtime_root: Path, config_path: 
     python_bin = repo_root / "runtime" / "jesse_workspace" / ".venv" / "bin" / "python"
     worker_script = repo_root / "scripts" / "run_strategy_instance.py"
 
+    sync_runtime_routes(instances)
+
     for instance in instances:
         pid_path = build_instance_pid_path(runtime_root, instance.id)
         if pid_path.exists():
@@ -120,6 +136,7 @@ def start_instance_workers(*, repo_root: Path, runtime_root: Path, config_path: 
                 "DRYRUN_RUNTIME_DIR": str(runtime_root),
                 "DRYRUN_INSTANCES_CONFIG": str(config_path),
                 "DRYRUN_INSTANCE_ID": instance.id,
+                "DRYRUN_STRATEGY_NAME": instance.strategy,
                 "DRYRUN_INSTANCE_RUN_ONCE": "0",
             }
         )

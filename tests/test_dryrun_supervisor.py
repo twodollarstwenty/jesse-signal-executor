@@ -177,6 +177,7 @@ def test_start_instance_workers_spawns_worker_process_and_writes_instance_pid(mo
     monkeypatch.setenv("POSTGRES_PASSWORD", "password")
 
     calls: list[tuple[list[str], dict]] = []
+    route_sync_calls: list[list[object]] = []
 
     class FakeProcess:
         def __init__(self, pid: int):
@@ -187,6 +188,7 @@ def test_start_instance_workers_spawns_worker_process_and_writes_instance_pid(mo
         return FakeProcess(43210)
 
     monkeypatch.setattr(module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(module, "sync_runtime_routes", lambda instances: route_sync_calls.append(list(instances)))
 
     instances = [type("Instance", (), {"id": "ott_eth_5m", "strategy": "Ott2butKAMA"})()]
 
@@ -206,12 +208,14 @@ def test_start_instance_workers_spawns_worker_process_and_writes_instance_pid(mo
         str(repo_root / "scripts" / "run_strategy_instance.py"),
     ]
     assert calls[0][1]["DRYRUN_INSTANCE_ID"] == "ott_eth_5m"
+    assert calls[0][1]["DRYRUN_STRATEGY_NAME"] == "Ott2butKAMA"
     assert calls[0][1]["DRYRUN_INSTANCE_RUN_ONCE"] == "0"
     assert calls[0][1]["HOST"] == "127.0.0.1"
     assert calls[0][1]["PORT"] == "5432"
     assert calls[0][1]["DB_NAME"] == "jesse_db"
     assert calls[0][1]["USERNAME"] == "jesse_user"
     assert calls[0][1]["PASSWORD"] == "password"
+    assert route_sync_calls == [instances]
 
 
 def test_stop_instance_workers_terminates_process_and_removes_pid(monkeypatch, tmp_path: Path):
